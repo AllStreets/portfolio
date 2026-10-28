@@ -116,6 +116,15 @@ $('#ledger').innerHTML = index
   )
   .join('')
 
+// Every link to a page opens in a new tab, so the globe stays where the visitor left it.
+// In-page jumps (#…) and email links stay as they are.
+document.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((a) => {
+  const h = a.getAttribute('href') || ''
+  if (h.startsWith('#') || h.startsWith('mailto:')) return
+  a.target = '_blank'
+  a.rel = 'noopener noreferrer'
+})
+
 // ---------- Scroll → where the camera should be ----------
 
 const N = chapters.length

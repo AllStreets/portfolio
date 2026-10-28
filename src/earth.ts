@@ -208,17 +208,15 @@ export function makeEarth(tex: {
           vec3 lp = (detAM * vec4(vPos, 1.0)).xyz;
           vec2 m = lp.xz / (2.0 * detLHalf) + 0.5;
           float inside = step(0.0, m.x) * step(m.x, 1.0) * step(0.0, m.y) * step(m.y, 1.0);
-          float st = texture2D(detL, m).r;
-          // Lamps, not tubes: break each street into pools of light.
-          vec2 q = lp.xz / 28.0;
-          float lamp = fract(sin(dot(floor(q), vec2(12.99, 78.23))) * 43758.5);
-          st *= mix(1.0, 0.55 + 0.75 * lamp, detLStreet);
+          // The carriageway at its real width (2.5 m per texel near the Loop) plus the soft spill around it.
+          vec3 lt = texture2D(detL, m).rgb;
+          float st = lt.r * 0.75 + lt.g * 0.12;
           float fadeL = smoothstep(0.0, 0.08, min(min(m.x, 1.0 - m.x), min(m.y, 1.0 - m.y)));
           // Beyond the street map, the photo's bright pavement stands in at a low level.
           float pave = smoothstep(0.2, 0.45, dot(photoCol, vec3(0.3, 0.55, 0.15))) * 0.08;
-          lights = mix(lights, mix(pave * detLStreet, mix(st * 1.1, pow(st, 1.5) * 0.45, detLStreet), inside * fadeL), photo);
+          lights = mix(lights, mix(pave * detLStreet, st * mix(1.1, 0.5, detLStreet), inside * fadeL), photo);
         }
-        col += vec3(1.0, 0.56, 0.24) * lights * night * 1.6 * (1.0 - water * 0.95);
+        col += mix(vec3(1.0, 0.56, 0.24), vec3(1.0, 0.72, 0.45), detLStreet * photo) * lights * night * mix(1.6, 1.0, detLStreet * photo) * (1.0 - water * 0.95);
 
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
@@ -321,8 +319,11 @@ export function makeEarth(tex: {
           odR += hr; odM += hm;
           // optical depth toward the sun, closed form along the shell
           vec2 ls = hit(s, L, rA);
-          vec2 lp = hit(s, L, rP);
-          if (lp.x > 0.0) continue;
+          // Earth's shadow, softened over 30 km so the terminator never bands.
+          float bS = dot(s, L);
+          float miss = bS > 0.0 ? 1e9 : sqrt(max(dot(s, s) - bS * bS, 0.0));
+          float lightF = smoothstep(rP - 10.0, rP + 20.0, miss);
+          if (lightF <= 0.0) continue;
           float lt = ls.y;
           const int M = 4;
           float lds = lt / float(M);
@@ -333,7 +334,7 @@ export function makeEarth(tex: {
           }
           vec3 tau = BR * (odR + lR) + BM * 1.1 * (odM + lM);
           vec3 att = exp(-tau);
-          sumR += att * hr; sumM += att * hm;
+          sumR += att * hr * lightF; sumM += att * hm * lightF;
         }
         float mu = dot(d, L);
         float pR = 3.0 / (16.0 * 3.14159) * (1.0 + mu * mu);

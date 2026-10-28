@@ -70,7 +70,15 @@ export async function makeChicago(renderer: THREE.WebGLRenderer, scene: THREE.Sc
       }`,
   })
   skyScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), skyMat))
-  material.envMap = pmrem.fromScene(skyScene, 0.02).texture
+  const dayEnv = pmrem.fromScene(skyScene, 0.02).texture
+  // Night: a dark sky with the city's own warm glow along the horizon, for the glass to catch.
+  skyMat.fragmentShader = skyMat.fragmentShader.replace(
+    'vec3 zen = vec3(0.2, 0.3, 0.5), hor = vec3(0.6, 0.64, 0.68), gnd = vec3(0.14, 0.13, 0.12);',
+    'vec3 zen = vec3(0.01, 0.012, 0.025), hor = vec3(0.32, 0.2, 0.11), gnd = vec3(0.12, 0.07, 0.035);',
+  )
+  skyMat.needsUpdate = true
+  const nightEnv = pmrem.fromScene(skyScene, 0.02).texture
+  material.envMap = dayEnv
 
   await Promise.all([loadFacadeTextures(), loadStylePalette()])
   const core = await loader.loadAsync('/chicago/core.glb')
@@ -79,5 +87,5 @@ export async function makeChicago(renderer: THREE.WebGLRenderer, scene: THREE.Sc
   // The outer ring follows once the Loop is up.
   const outer = loader.loadAsync('/chicago/outer.glb').then((g) => add(g.scene))
 
-  return { group, meshes, material, sun, sky, center, outer, uniforms: facadeUniforms }
+  return { group, meshes, material, sun, sky, center, outer, dayEnv, nightEnv, uniforms: facadeUniforms }
 }

@@ -189,15 +189,19 @@ input[type='range']::-webkit-slider-thumb {
 }
 input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%; background: var(--sodium); border: 0; }
 
-/* Pins on the globe */
+/* Pins on the globe: a zero-size anchor at the place; the dot is centred on it, the label sits beside it. */
 .pin {
-  position: fixed; left: 0; top: 0; z-index: 4; pointer-events: none;
-  opacity: 0; display: flex; align-items: center; gap: 8px;
+  position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 4; pointer-events: none;
+  opacity: 0; will-change: transform;
   font: italic 400 16px/1 var(--carto); color: var(--ink);
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
-  will-change: transform;
 }
-.pin i { width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: var(--sodium); box-shadow: 0 0 0 2px rgba(2, 3, 5, 0.6); }
+.pin i {
+  position: absolute; left: -3.5px; top: -3.5px; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--sodium); box-shadow: 0 0 0 2px rgba(2, 3, 5, 0.6);
+}
+.pin span { position: absolute; top: -0.55em; left: 11px; white-space: nowrap; }
+.pin-left span { left: auto; right: 11px; }
 
 /* The index */
 .index {

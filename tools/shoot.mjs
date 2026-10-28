@@ -17,7 +17,7 @@ const n = await page.evaluate(() => window.__globe.chapters.length)
 for (let i = 0; i < n; i++) {
   if (only && !only.includes(i)) continue
   await page.evaluate((i) => { const s = innerHeight * (innerWidth <= 760 ? 1.5 : 1.6); scrollTo(0, i * s + (i ? 2 : 0)) }, i)
-  await page.waitForTimeout(3200)
+  await page.waitForTimeout(+(process.env.WAIT || 3200))
   await page.screenshot({ path: `shots/${prefix}-${i}.png` })
 }
 if (!only) {

@@ -286,6 +286,7 @@ vec4 T = uTile[fi];
 bool isRoof = vWNormal.y > 0.6;
 vec2 tuv = vMUv / T.xy;
 vec2 gx = dFdx(tuv), gy = dFdy(tuv);
+vec2 gFwCell = fwidth(tuv * T.zw);   // globe: cell footprint, taken before any branch
 vec3 st = vec3(fract(tuv.x), 1.0 - fract(tuv.y), float(fi));
 vec3 wallAlb = textureGrad(uAlbedo, st, gx, gy).rgb;
 float win = textureGrad(uWin, st, gx, gy).r;
@@ -303,6 +304,7 @@ vec3 coping = vec3(0.58, 0.56, 0.52) * (0.9 + 0.2 * gravel.r);
 roofAlb = mix(roofAlb, vec3(0.9, 0.92, 0.96) * (0.94 + 0.06 * gravel.r), uSnow * 0.93);
 vec3 alb = isRoof ? roofAlb : (isParapet ? coping : wallAlb);
 win = (isRoof || isParapet) ? 0.0 : win;
+win = mix(win, 0.3, smoothstep(0.15, 0.5, max(gFwCell.x, gFwCell.y))); // globe: no window stripes at a distance
 float fwRow = fwidth(vWPos.y / 0.42), fwAisle = fwidth(vMUv.x / 17.0) * 17.0;   // before any branch
 vec4 uvGrad = vec4(dFdx(vMUv), dFdy(vMUv));
 gFwXZ = length(fwidth(vWPos.xz));
@@ -331,6 +333,10 @@ if (styled && !isRoof && !isParapet && !isVenue) {       // sourced colours (V2 
   vec2 cf = fract(tuv * T.zw);
   float mull = 1.0 - step(0.06, cf.x) * step(cf.x, 0.94);
   float span = step(cf.y, 0.2);
+  // Globe: under a pixel, mullions and spandrels become their average share so the towers do not shimmer.
+  vec2 fwm = gFwCell;
+  mull = mix(mull, 0.12, smoothstep(0.08, 0.35, fwm.x));
+  span = mix(span, 0.2, smoothstep(0.08, 0.35, fwm.y));
   vec3 body = S4.a > S6a ? mix(S0.rgb, S4.rgb, smoothstep(S6a, S4.a, vWPos.y)) : S0.rgb;
   vec3 lookC = mix(mix(body, S3.rgb, span), S1.rgb, win);
   lookC = mix(lookC, S2.rgb, mull * (1.0 - span) * 0.9);
@@ -379,7 +385,8 @@ if (styled && uNight > 0.001) {                          // crown and façade ni
   vec4 C5 = styleTexel(si, 5), C6 = styleTexel(si, 6);
   float band = step(C6.r, vWPos.y) * step(vWPos.y, C6.g);
   band *= 1.0 - teamHit;
-  if (C6.b > 0.5 && C6.b < 1.5) totalEmissiveRadiance += diffuseColor.rgb * C5.rgb * C5.a * (0.35 + 0.65 * smoothstep(C6.r, C6.g, vWPos.y)) * band * uNight;
+  // Globe: floodlight the wall's average colour, so mullions don't turn into bright stripes at a distance.
+  if (C6.b > 0.5 && C6.b < 1.5) totalEmissiveRadiance += mix(diffuseColor.rgb, S0.rgb * 0.8, smoothstep(0.05, 0.3, max(gFwCell.x, gFwCell.y))) * C5.rgb * C5.a * (0.35 + 0.65 * smoothstep(C6.r, C6.g, vWPos.y)) * band * uNight;
   else if (C6.b > 1.5) totalEmissiveRadiance += C5.rgb * C5.a * band * uNight * uLitBoost;
 }
 float lv = venueLevel(vWPos.xz);
@@ -395,7 +402,8 @@ if (isVenue && vi == 27) totalEmissiveRadiance += diffuseColor.rgb * (0.25 + 3.5
 if (isVenue && uNight > 0.001) {
   if (vi == 14) totalEmissiveRadiance += vec3(1.0, 0.96, 0.88) * 3.2 * uNight * uLitBoost * lvL;
   // under the floodlights: the field and stands glow as if lit for a night game
-  if ((vi >= 10 && vi <= 12) || vi == 24) totalEmissiveRadiance += diffuseColor.rgb * vec3(1.0, 0.98, 0.92) * 0.85 * uNight * lvL;
+  // Globe: no sports clock runs here, so fields light only at registered venues (none), never on the towers that share id 12.
+  if ((vi >= 10 && vi <= 12) || vi == 24) totalEmissiveRadiance += diffuseColor.rgb * vec3(1.0, 0.98, 0.92) * 0.85 * uNight * lvA;
   if (vi == 9 || vi == 18) totalEmissiveRadiance += diffuseColor.rgb * 0.35 * uNight * (0.3 + 0.7 * lvL);
   if (vi == 16 && vWNormal.y < 0.6 && lvA > 0.0) {
     float y = vWPos.y;
@@ -412,7 +420,11 @@ if (isVenue && uNight > 0.001) {
   }
   if (vi == 15 && vSeed > 0.5) {
     vec2 c = floor(vMUv / vec2(0.8, 0.6));
-    totalEmissiveRadiance += mix(vec3(0.2, 0.45, 1.0), vec3(1.0, 0.8, 0.4), owHash(c)) * (0.25 + 0.5 * owHash(c + 7.0)) * uNight * uLitBoost;
+    vec3 cellLit = mix(vec3(0.2, 0.45, 1.0), vec3(1.0, 0.8, 0.4), owHash(c)) * (0.25 + 0.5 * owHash(c + 7.0));
+    // Globe: 0.8 m cells are far under a pixel from the air; draw their average instead of sparkle.
+    vec2 fc = vec2(uvGrad.x, uvGrad.w);
+    float farC = smoothstep(0.15, 0.5, length(vec2(length(uvGrad.xy), length(uvGrad.zw))) / 0.6);
+    totalEmissiveRadiance += mix(cellLit, vec3(0.6, 0.62, 0.7) * 0.5 * 0.55, farC) * uNight * uLitBoost;
   }
   if (vi == 19 && vWNormal.y < 0.6) {   // stained glass: about two thirds of congregations light up
     float lw = lancet(vMUv, vWPos.y);
@@ -445,10 +457,13 @@ if (!isRoof && !isParapet && !isVenue && uNight > 0.001) {
   vec3 wc = mix(warm, cool, step(isResidential ? 0.93 : 0.7, owHash(vec2(cell.y, vSeed * 13.0))));
   float level = 0.45 + 0.55 * owHash(cell * 1.7 + 3.1);
   // Globe: when a window cell is under a pixel, glow at the wall's average instead of sparkling.
-  vec2 fwc = fwidth(tuv * T.zw);
-  float farW = smoothstep(0.25, 0.8, max(fwc.x, fwc.y));
+  vec2 fwc = gFwCell;
+  // Individual windows only once a floor is several pixels tall; before that, whole floors glow evenly.
+  float farW = smoothstep(0.05, 0.22, max(fwc.x, fwc.y));
+  float floorOn = step(0.55 - 0.4 * busy, floorH);
+  float floorVar = mix(0.25 + 1.5 * floorOn, 1.0, smoothstep(0.3, 0.7, fwc.y));
   float near = win * inset * lit * level;
-  float avg = 0.16 * busy * smoothstep(0.35, 0.75, floorH + 0.3 * busy) * (0.6 + 0.8 * fract(vSeed * 3.1));
+  float avg = 0.3 * busy * (0.5 + 0.9 * fract(vSeed * 3.1)) * floorVar * (fi == 3 ? 1.3 : 1.0);
   totalEmissiveRadiance += wc * mix(near, avg, farW) * uNight * 0.9 * uLitBoost;
 }
 `

@@ -1,4 +1,8 @@
 import * as THREE from 'three'
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import './style.css'
 import { R, latLon, enu, formatCoord, distance } from './geo'
 import { subsolar, gmstRadians } from './sun'
@@ -204,11 +208,23 @@ const camera = new THREE.PerspectiveCamera(small ? 50 : 38, innerWidth / innerHe
 
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false)
+  composer?.setSize(innerWidth, innerHeight)
+  composer?.setPixelRatio(renderer.getPixelRatio())
   camera.aspect = innerWidth / innerHeight
   camera.updateProjectionMatrix()
   layout()
 }
+// Lit windows and lamps bloom a little, as they do to the eye. Only the brightest pixels take part.
+let composer: EffectComposer | null = null
+let bloom: UnrealBloomPass | null = null
 addEventListener('resize', resize)
+resize()
+
+composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }))
+composer.addPass(new RenderPass(scene, camera))
+bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.35, 0.4, 0.9)
+composer.addPass(bloom)
+composer.addPass(new OutputPass())
 resize()
 
 const loader = new THREE.TextureLoader()
@@ -328,7 +344,7 @@ scene.add(circuit.mesh)
 
 // The path from Chapel Hill to Barcelona to Chicago, as arcs above the surface.
 const pathGroup = new THREE.Group()
-const pathMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#e9a650'), transparent: true, opacity: 0, toneMapped: false, depthWrite: false })
+const pathMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#e9a650'), transparent: true, opacity: 0, toneMapped: false, depthWrite: false, fog: false })
 for (let i = 0; i < PATH.length - 1; i++) {
   const a = PATH[i]
   const b = PATH[i + 1]
@@ -339,9 +355,12 @@ for (let i = 0; i < PATH.length - 1; i++) {
   for (let k = 0; k <= 96; k++) {
     const t = k / 96
     const p = A.clone().lerp(B, t).normalize()
-    pts.push(p.multiplyScalar(R + 12 + Math.sin(Math.PI * t) * d * 0.12))
+    // Starts and ends on the ground, exactly under each dot, and rises with the distance between.
+    pts.push(p.multiplyScalar(R + 2 + Math.sin(Math.PI * t) * d * 0.12))
   }
-  pathGroup.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 160, 9, 6, false), pathMat))
+  const arc = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 200, 10, 8, false), pathMat)
+  arc.renderOrder = 4 // after the air, so it stays its own colour
+  pathGroup.add(arc)
 }
 scene.add(pathGroup)
 
@@ -352,15 +371,16 @@ scene.add(stars)
 // Place labels drawn by the page, pinned to the globe.
 type Pin = { el: HTMLElement; pos: THREE.Vector3; show: (p: number) => number }
 const pins: Pin[] = []
-function pin(text: string, lat: number, lon: number, show: Pin['show']) {
-  const e = el('div', 'pin')
+// Labels sit on the side of the dot away from the lines that leave it.
+function pin(text: string, lat: number, lon: number, show: Pin['show'], side: 'right' | 'left' = 'right') {
+  const e = el('div', side === 'left' ? 'pin pin-left' : 'pin')
   e.innerHTML = `<i></i><span>${text}</span>`
   e.setAttribute('aria-hidden', 'true')
   document.body.append(e)
   pins.push({ el: e, pos: latLon(lat, lon, 0.5), show })
 }
 const pathIndex = chapters.findIndex((c) => c.id === 'path')
-PATH.forEach((s) => pin(s.name, s.lat, s.lon, (p) => sstep(pathIndex - 0.25, pathIndex, p)))
+PATH.forEach((s) => pin(s.name, s.lat, s.lon, (p) => sstep(pathIndex - 0.25, pathIndex, p), s.lon < -30 ? 'left' : 'right'))
 pin('Chicago', CHICAGO.lat, CHICAGO.lon, (p) => 1 - sstep(0.2, 0.5, p))
 const at = (id: string) => chapters.findIndex((c) => c.id === id)
 const hold = (i: number) => (p: number) => sstep(i - 0.12, i - 0.02, p) * (1 - sstep(i + 0.3, i + 0.42, p))
@@ -505,7 +525,7 @@ function frame(now: number) {
   if (Math.abs(goal - shown) < 1e-4) shown = goal
 
   const v = viewAt(shown)
-  const drift = reduced ? 0 : Math.sin(now / 9000) * (v.range < 50 ? 4 : 2)
+  const drift = reduced || qs.has('still') ? 0 : Math.sin(now / 9000) * (v.range < 50 ? 4 : 2)
   place(v, drift)
   const pathOn = sstep(pathIndex - 0.4, pathIndex, shown)
   const shift = small ? 0 : ((1 - sstep(0.15, 0.6, shown)) * 0.16 + pathOn * 0.1) * innerWidth
@@ -541,7 +561,9 @@ function frame(now: number) {
       city.sun.intensity = 3.2 * day
       city.sun.castShadow = lit
       city.sky.intensity = 0.06 + 0.9 * day
-      city.material.envMapIntensity = 0.04 + 0.6 * day
+      const env = day > 0.3 ? city.dayEnv : city.nightEnv
+      if (city.material.envMap !== env) city.material.envMap = env
+      city.material.envMapIntensity = day > 0.3 ? 0.6 * day : 0.22
       city.uniforms.uNight.value = 1 - sstep(-0.1, 0.03, mu)
       city.uniforms.uTime.value = now / 1000
       // Air between the camera and the towers, the colour of the sky at that hour.
@@ -594,7 +616,14 @@ function frame(now: number) {
   const t = nowEl()
   if (t) t.textContent = chicagoTime()
 
-  renderer.render(scene, camera)
+  if (bloom) {
+    // Night only: by day the sunlit roofs would bloom too.
+    const nightHere = 1 - sstep(-0.1, 0.05, tmp.copy(camera.position).normalize().dot(sun))
+    bloom.strength = 0.45 * nightHere
+    bloom.enabled = alt < 400 && nightHere > 0.01
+  }
+  if (composer && bloom?.enabled) composer.render()
+  else renderer.render(scene, camera)
 
   // If frames run long, draw fewer pixels.
   if (dt > 0.034) slow++
@@ -602,6 +631,7 @@ function frame(now: number) {
   if (slow > 40 && dpr > 1) {
     dpr = Math.max(1, dpr - 0.25)
     renderer.setPixelRatio(dpr)
+    composer?.setPixelRatio(dpr)
     stars.material.uniforms.pixelRatio.value = dpr
     slow = 0
   }

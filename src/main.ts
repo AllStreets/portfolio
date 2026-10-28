@@ -271,13 +271,24 @@ async function tex(url: string, srgb: boolean) {
 
 const starsP = makeStars('/earth/stars.bin').catch(() => makeStars('/earth/stars.bin'))
 const [day, night, relief, clouds] = await Promise.all([
-  tex('/earth/day-4k.webp', true),
-  tex('/earth/night-4k.webp', false),
-  tex('/earth/relief-4k.webp', false),
-  tex('/earth/clouds-4k.webp', false),
+  tex('/earth/day-1k.webp', true),
+  tex('/earth/night-1k.webp', false),
+  tex('/earth/relief-1k.webp', false),
+  tex('/earth/clouds-1k.webp', false),
 ])
 const earth = makeEarth({ day, night, relief, clouds })
 scene.add(earth.surface, earth.clouds, earth.air)
+// The 1K Earth paints first; the 4K one follows and goes up one texture per frame.
+Promise.all([tex('/earth/day-4k.webp', true), tex('/earth/night-4k.webp', false), tex('/earth/relief-4k.webp', false), tex('/earth/clouds-4k.webp', false)]).then(([d, n, r, c]) => {
+  const u = earth.surfaceMat.uniforms
+  upload(d, () => (u.dayMap.value = d))
+  upload(n, () => (u.nightMap.value = n))
+  upload(r, () => (u.reliefMap.value = r))
+  upload(c, () => {
+    u.cloudMap.value = c
+    earth.cloudMat.uniforms.cloudMap.value = c
+  })
+})
 
 const chiPatch = surfacePatch(CHICAGO.lat, CHICAGO.lon, 1.4, earth.surfaceMat, 360)
 const albPatch = surfacePatch(ALBERT.lat, ALBERT.lon, 1.4, earth.surfaceMat, 360)

@@ -84,8 +84,8 @@ export async function makeChicago(renderer: THREE.WebGLRenderer, scene: THREE.Sc
   const core = await loader.loadAsync('/chicago/core.glb')
   add(core.scene)
   scene.add(group)
-  // The outer ring follows once the Loop is up.
-  const outer = loader.loadAsync('/chicago/outer.glb').then((g) => add(g.scene))
+  // The outer ring is loaded later, when the page asks for it.
+  const loadOuter = () => loader.loadAsync('/chicago/outer.glb').then((g) => add(g.scene))
 
-  return { group, meshes, material, sun, sky, center, outer, dayEnv, nightEnv, uniforms: facadeUniforms }
+  return { group, meshes, material, sun, sky, center, loadOuter, dayEnv, nightEnv, uniforms: facadeUniforms }
 }

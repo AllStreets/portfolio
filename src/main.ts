@@ -288,7 +288,7 @@ const [day, night, relief, clouds] = await Promise.all([
 const earth = makeEarth({ day, night, relief, clouds })
 scene.add(earth.surface, earth.clouds, earth.air)
 // The 1K Earth paints first; the 4K one follows and goes up one texture per frame.
-Promise.all([tex('/earth/day-4k.webp', true), tex('/earth/night-4k.webp', false), tex('/earth/relief-4k.webp', false), tex('/earth/clouds-4k.webp', false)]).then(([d, n, r, c]) => {
+const fourK = Promise.all([tex('/earth/day-4k.webp', true), tex('/earth/night-4k.webp', false), tex('/earth/relief-4k.webp', false), tex('/earth/clouds-4k.webp', false)]).then(([d, n, r, c]) => {
   const u = earth.surfaceMat.uniforms
   upload(d, () => (u.dayMap.value = d))
   upload(n, () => (u.nightMap.value = n))
@@ -316,7 +316,7 @@ const places: Place[] = [
   const M = m.invert().premultiply(new THREE.Matrix4().makeScale(1000, 1000, 1000))
   return { ...p, M, tex: p.layers.map(() => null), light: null as THREE.Texture | null, regionTex: null as THREE.Texture | null, loading: false }
 })
-function loadPlace(p: Place) {
+async function loadPlace(p: Place) {
   if (p.loading) return
   p.loading = true
   const prep = (t: THREE.Texture) => {
@@ -325,9 +325,15 @@ function loadPlace(p: Place) {
     t.minFilter = THREE.LinearMipmapLinearFilter
     return t
   }
-  p.layers.forEach((l, i) => bitmapTex(l.url, false).then((t) => upload(prep(t), (u) => (p.tex[i] = u))))
-  if (p.region) bitmapTex(p.region, false).then((t) => upload(prep(t), (u) => (p.regionTex = u)))
-  if (p.lights) bitmapTex(p.lights.url, false).then((t) => upload(prep(t), (u) => (p.light = u)))
+  // One file at a time, the most visible first: street lights, the sharpest photo, then the wider ones.
+  const jobs: [string, (t: THREE.Texture) => void][] = []
+  if (p.lights) jobs.push([p.lights.url, (u) => (p.light = u)])
+  for (let i = p.layers.length - 1; i >= 0; i--) jobs.push([p.layers[i].url, (u) => (p.tex[i] = u)])
+  if (p.region) jobs.push([p.region, (u) => (p.regionTex = u)])
+  for (const [url, done] of jobs) {
+    const t = await bitmapTex(url, false)
+    upload(prep(t), done)
+  }
 }
 function usePlace(cam: THREE.Vector3) {
   const u = earth.surfaceMat.uniforms
@@ -341,7 +347,7 @@ function usePlace(cam: THREE.Vector3) {
       best = p
     }
   }
-  const ready = best && best.tex[0]
+  const ready = best && best.tex.some(Boolean)
   const photoReach = best ? Math.max(80, best.layers[0].half / 1000 * 4) : 1
   u.detAOn.value = ready ? 1 - sstep(photoReach * 0.7, photoReach, bd) : 0
   u.detROn.value = best && best.regionTex ? 1 - sstep(1100, 1500, bd) : 0
@@ -377,7 +383,6 @@ function usePlace(cam: THREE.Vector3) {
   }
 }
 // Every place loads in the background from the start, nearest first.
-places.forEach((p, i) => setTimeout(() => loadPlace(p), 600 + i * 900))
 
 const circuit = makeCircuit()
 scene.add(circuit.mesh)
@@ -478,20 +483,30 @@ const loadCity = () =>
     // Compile the city's shaders (and their shadow variants) now, while it is out of sight.
     const was = c.group.visible
     c.group.visible = true
-    renderer.compileAsync(scene, camera).catch(() => {}).finally(() => {
+    return renderer.compileAsync(scene, camera).catch(() => {}).finally(() => {
       c.group.visible = was
       city = c
-    })
-    c.outer.then(() => {
-      c.group.visible = true
-      renderer.compileAsync(scene, camera).catch(() => {}).finally(() => (outerReady = true))
-    })
+    }).then(() => c)
   })
-;('requestIdleCallback' in window ? requestIdleCallback : setTimeout)(() => loadCity(), { timeout: 1200 } as never)
+
+// Downloads in order of what a visitor sees first: Chicago's buildings and street lights, its photos, the
+// sharper Earth, the other places, then Chicago's outer ring. One stream at a time keeps each piece fast.
+;(async () => {
+  const c = await loadCity()
+  await loadPlace(places[0])
+  await fourK
+  for (const p of places.slice(1)) await loadPlace(p)
+  await c.loadOuter()
+  c.group.visible = true
+  await renderer.compileAsync(scene, camera).catch(() => {})
+  outerReady = true
+  loadEightK()
+})()
 
 // Sharper Earth when the device can take it.
-if (!small && renderer.capabilities.maxTextureSize >= 8192) {
-  setTimeout(async () => {
+function loadEightK() {
+  if (small || renderer.capabilities.maxTextureSize < 8192) return
+  void (async () => {
     const [d8, n8, r8, c8] = await Promise.all([
       tex('/earth/day-8k.webp', true),
       tex('/earth/night-8k.webp', false),
@@ -505,7 +520,7 @@ if (!small && renderer.capabilities.maxTextureSize >= 8192) {
     u.reliefMap.value = r8
     u.cloudMap.value = c8
     earth.cloudMat.uniforms.cloudMap.value = c8
-  }, 4000)
+  })()
 }
 
 // ---------- The sun ----------
@@ -609,7 +624,8 @@ function frame(now: number) {
   earth.surfaceMat.uniforms.cloudFade.value = sstep(8, 80, alt)
   stars.material.uniforms.dim.value = sstep(60, 400, alt)
   earth.airMat.uniforms.strength.value = 0.22 + 0.78 * sstep(20, 450, alt)
-  earth.surfaceMat.uniforms.lightsScale.value = 0.25 + 0.75 * sstep(30, 400, alt)
+  // Close to the ground the 3 km satellite lights are one blur; without a street map, let them go dark.
+  earth.surfaceMat.uniforms.lightsScale.value = (0.25 + 0.75 * sstep(30, 400, alt)) * (earth.surfaceMat.uniforms.detLOn.value ? 1 : sstep(15, 70, alt))
 
   if (city) {
     const near = 1 - sstep(25, 90, camera.position.distanceTo(latLon(CHICAGO.lat, CHICAGO.lon)))

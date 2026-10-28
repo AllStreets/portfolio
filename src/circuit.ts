@@ -19,7 +19,7 @@ export function makeCircuit() {
   const pos: number[] = []
   const along: number[] = []
   const side: number[] = []
-  const W = 22
+  const W = 30
   for (let i = 0; i <= N; i++) {
     const p = even[i % N]
     const q = even[(i + 1) % N]

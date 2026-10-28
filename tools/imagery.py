@@ -42,12 +42,20 @@ def eox(lat0, lon0, half_m, px, z, tile=None):
     def tx(lon): return (lon + 180) / 360 * n
     def ty(lat): return (1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * n
     x0, x1 = int(tx(lon_w)), int(tx(lon_e)); y0, y1 = int(ty(lat_n)), int(ty(lat_s))
-    mosaic = Image.new('RGB', ((x1 - x0 + 1) * 256, (y1 - y0 + 1) * 256))
-    for y in range(y0, y1 + 1):
-        for x in range(x0, x1 + 1):
-            url = (tile or 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg').format(z=z, y=y, x=x)
-            t = Image.open(io.BytesIO(get(url))).convert('RGB')
-            mosaic.paste(t, ((x - x0) * 256, (y - y0) * 256))
+    mosaic = Image.new('RGBA', ((x1 - x0 + 1) * 256, (y1 - y0 + 1) * 256))
+    from concurrent.futures import ThreadPoolExecutor
+    def one(xy):
+        x, y = xy
+        url = (tile or 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg').format(z=z, y=y, x=x)
+        try:
+            return xy, Image.open(io.BytesIO(get(url))).convert('RGBA')
+        except Exception:
+            return xy, None
+    jobs = [(x, y) for y in range(y0, y1 + 1) for x in range(x0, x1 + 1)]
+    with ThreadPoolExecutor(8) as ex:
+        for (x, y), t in ex.map(one, jobs):
+            if t is not None:
+                mosaic.paste(t, ((x - x0) * 256, (y - y0) * 256))
     print('mosaic', mosaic.size, flush=True)
     m = np.asarray(mosaic)
     u = (np.arange(px) + 0.5) / px
@@ -59,7 +67,7 @@ def eox(lat0, lon0, half_m, px, z, tile=None):
     px_y = ((np.array([ty(l) for l in lats]) - y0) * 256).astype(np.float32)
     X = np.clip(px_x[None, :].repeat(px, 0), 0, m.shape[1] - 1).astype(int)
     Y = np.clip(px_y[:, None].repeat(px, 1), 0, m.shape[0] - 1).astype(int)
-    return Image.fromarray(m[Y, X])
+    return Image.fromarray(m[Y, X], 'RGBA')
 
 def deshadow(img):
     # NAIP is flown mid-morning: towers throw long blue-violet shadows that read as water under 3D buildings.
@@ -76,10 +84,10 @@ def save(img, mask, name, q=82):
     img = img.convert('RGB')
     if mask is not None:
         img.putalpha(mask.resize(img.size, Image.BILINEAR))
-    img.save(OUT + name + '.webp', quality=q, method=6)
+    img.save(OUT + name + '.webp', quality=q, method=6, exact=True)
     print('saved', name, img.size, flush=True)
 
-which = sys.argv[1:]
+which = sys.argv[1:] if __name__ == '__main__' else []
 if 'chicago' in which:
     LAT, LON = 41.88203, -87.62784
     land = Image.open('public/chicago/land.png').convert('L')  # covers +-10240 m
@@ -108,10 +116,10 @@ if 'chicago-wide' in which:
     save(deshadow(wide), Image.fromarray(((~water) * 255).astype(np.uint8)), 'chicago-wide')
 def s2(img):
     # Sentinel-2 cloudless is flat and bright; add contrast, and find water by its dark blue.
-    a = np.asarray(img).astype(np.float32) / 255
+    a = np.asarray(img.convert('RGB')).astype(np.float32) / 255
     a = np.clip((a - 0.04) * 1.18, 0, 1) ** 1.12
     lum = a @ np.array([0.3, 0.55, 0.15], np.float32)
-    water = (lum < 0.16) & (a[..., 2] >= a[..., 0] - 0.01)
+    water = (lum < 0.2) & (a[..., 2] >= a[..., 0] + 0.02)
     from PIL import ImageFilter
     m = Image.fromarray(((~water) * 255).astype(np.uint8)).filter(ImageFilter.MedianFilter(5))
     return Image.fromarray((a * 255).astype(np.uint8)), m
@@ -119,20 +127,34 @@ def s2(img):
 GIBS = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png'
 def lights(lat, lon, name):
     # NASA Black Marble 2016 at 500 m, for sharp city lights from orbit at night.
-    im = eox(lat, lon, 450000, 2048, 8, GIBS).convert('L')
+    im = eox(lat, lon, 450000, 2048, 8, GIBS).convert('RGB').convert('L')
     a = np.asarray(im).astype(np.float32) / 255
     a = np.clip((a - 0.12) / 0.88, 0, 1)
     Image.fromarray((a * 255).astype(np.uint8)).save(OUT + name + '.webp', quality=85, method=6)
     print('saved', name, flush=True)
 if 'lights' in which:
-    lights(22.3, 114.17, 'hongkong-lights')
-    lights(51.997, -0.741, 'bletchley-lights')
+    lights(22.3, 114.17, 'hongkong-region-lights')
+    lights(51.997, -0.741, 'bletchley-region-lights')
     lights(41.88203, -87.62784, 'chicago-region-lights')
+# Hong Kong: Lands Department orthophotos (open data, attribution to the Lands Department, HKSAR).
+HKLD = 'https://mapapi.geodata.gov.hk/gs/api/v1.0.0/xyz/imagery/WGS84/{z}/{x}/{y}.png'
+if 'hk-close' in which:
+    im = eox(22.29, 114.17, 16000, 4096, 15, HKLD)
+    a = np.asarray(im).astype(np.float32)
+    have = a[..., 3] > 0
+    rgb = Image.fromarray(a[..., :3].astype(np.uint8))
+    save(rgb, Image.fromarray((have * 255).astype(np.uint8)), 'hongkong-close')
 if 'melbourne' in which:
-    save(*s2(eox(-37.8455, 144.9705, 7000, 4096, 16)), 'melbourne')
+    from PIL import ImageFilter, ImageEnhance
+    img, m = s2(eox(-37.8455, 144.9705, 7000, 4096, 16))
+    img = img.filter(ImageFilter.UnsharpMask(radius=3, percent=80, threshold=2))
+    save(img, m, 'melbourne')
 # Regional day imagery: NASA Blue Marble Next Generation at 500 m via GIBS (public domain), cloud-free.
 BMNG = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_NextGeneration/default/2004-08-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg'
 if 'hongkong' in which:
     save(eox(22.3, 114.17, 450000, 2048, 8, BMNG), None, 'hongkong')
+if 'bletchley-s2' in which:
+    im = s2(eox(51.997, -0.741, 200000, 4096, 11))
+    save(im[0], im[1], 'bletchley-mid')
 if 'bletchley' in which:
     save(eox(51.997, -0.741, 450000, 2048, 8, BMNG), None, 'bletchley')

@@ -3,7 +3,7 @@ import json, math, numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 import sys
 PLACE = sys.argv[1] if len(sys.argv) > 1 else 'chicago'
-LAT0, LON0, HALF, SRC = {'chicago': (41.88203, -87.62784, 10240, 'raw/roads.json'), 'melbourne': (-37.8455, 144.9705, 7000, 'raw/roads-mel.json')}[PLACE]
+LAT0, LON0, HALF, SRC = {'chicago': (41.88203, -87.62784, 10240, 'raw/roads.json'), 'melbourne': (-37.8455, 144.9705, 7000, 'raw/roads-mel.json'), 'hongkong': (22.29, 114.17, 16000, 'raw/roads-hk.json')}[PLACE]
 KX = 111320 * math.cos(math.radians(LAT0)); KY = 110574
 S = 4096
 W = {'motorway': (3, 1.0), 'trunk': (3, 1.0), 'primary': (2, 1.0), 'secondary': (2, 0.9), 'tertiary': (2, 0.75),

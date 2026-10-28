@@ -4,7 +4,7 @@ My portfolio is a flight around the real Earth. Each project sits where it belon
 
 ![The opening view: the Earth lit as it is right now](docs/hero.jpg)
 
-Close to the ground, the globe hands over to real data. Chicago is USGS aerial photography with 72,000 buildings at their recorded heights on top, and at night its streetlights are every OpenStreetMap road within ten kilometres of the Loop. Albert Park is traced from the circuit's real outline and laid where the track runs.
+Close to the ground, the globe hands over to real data. Chicago is USGS aerial photography with 72,000 buildings at their recorded heights on top, lit and shadowed by the sun, and at night its streetlights are every OpenStreetMap road within ten kilometres of the Loop. Albert Park is traced from the circuit's real outline and laid where the track runs.
 
 ![Chicago at night: the street grid lit, towers lit floor by floor](docs/chicago-night.jpg)
 
@@ -29,4 +29,4 @@ Add `?sun=-300` to the address to move the sun five hours back; the slider on th
 
 ## Credits
 
-Imagery: NASA Blue Marble, Black Marble and Visible Earth; GEBCO; USGS NAIP; Sentinel-2 cloudless by EOX IT Services (CC BY 4.0, contains modified Copernicus Sentinel data 2016); NASA GIBS. Data: City of Chicago, OpenStreetMap contributors (ODbL), Wikipedia, bacinger/f1-circuits (MIT), the Yale Bright Star Catalogue. The case studies under `/work` are carried over from my earlier site.
+Imagery: NASA Blue Marble, Black Marble and Visible Earth; GEBCO; USGS NAIP; Sentinel-2 cloudless by EOX IT Services (CC BY 4.0, contains modified Copernicus Sentinel data 2016); Lands Department, HKSAR Government; NASA GIBS. Data: City of Chicago, OpenStreetMap contributors (ODbL), Wikipedia, bacinger/f1-circuits (MIT), the Yale Bright Star Catalogue. The case studies under `/work` are carried over from my earlier site.

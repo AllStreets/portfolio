@@ -45,12 +45,16 @@ export function makeEarth(tex: {
       cloudSpin: { value: 0 },
       cloudFade: { value: 1 },
       lightsScale: { value: 1 },
+      shadowMap: { value: null as THREE.Texture | null },
+      shadowMW: { value: new THREE.Matrix4() },
+      shadowOn: { value: 0 },
       // Up to two photo layers for the place being visited, each a square in that place's local frame.
       detA: { value: null as THREE.Texture | null },
       detAM: { value: new THREE.Matrix4() },
       detAHalf: { value: 1 },
       detAOn: { value: 0 },
       detAWater: { value: 0 },
+      detKeep: { value: 0 },
       detB: { value: null as THREE.Texture | null },
       detBM: { value: new THREE.Matrix4() },
       detBHalf: { value: 1 },
@@ -61,6 +65,7 @@ export function makeEarth(tex: {
       detL: { value: null as THREE.Texture | null },
       detLHalf: { value: 10240 },
       detLStreet: { value: 1 },
+      detMapOn: { value: 0 },
       detR: { value: null as THREE.Texture | null },
       detROn: { value: 0 },
       detLOn: { value: 0 },
@@ -82,8 +87,22 @@ export function makeEarth(tex: {
       ${common}
       uniform vec3 sunDir;
       uniform sampler2D dayMap, nightMap, reliefMap, cloudMap, detA, detB, detC, detL, detR;
-      uniform float lightsScale;
-      uniform float cloudSpin, cloudFade, detAOn, detBOn, detCOn, detAHalf, detBHalf, detCHalf, detAWater, detLOn, detLHalf, detLStreet, detROn;
+      uniform float lightsScale, shadowOn;
+      uniform sampler2D shadowMap;
+      uniform mat4 shadowMW;
+      float groundShadow(vec3 p) {
+        if (shadowOn < 0.5) return 1.0;
+        vec4 sc = shadowMW * vec4(p, 1.0);
+        vec3 c = sc.xyz / sc.w * 0.5 + 0.5;
+        if (c.x <= 0.0 || c.x >= 1.0 || c.y <= 0.0 || c.y >= 1.0) return 1.0;
+        float t = 1.0 / 4096.0, s = 0.0;
+        for (int i = -1; i <= 1; i++)
+          for (int j = -1; j <= 1; j++)
+            s += step(c.z - 0.00003, texture2D(shadowMap, c.xy + vec2(float(i), float(j)) * t).r);
+        float edge = min(min(c.x, 1.0 - c.x), min(c.y, 1.0 - c.y));
+        return mix(1.0, s / 9.0, smoothstep(0.0, 0.05, edge));
+      }
+      uniform float cloudSpin, cloudFade, detAOn, detBOn, detCOn, detAHalf, detBHalf, detCHalf, detAWater, detKeep, detLOn, detLHalf, detLStreet, detROn, detMapOn;
       uniform mat4 detAM, detBM;
       // Returns rgb photo (linear) and a weight in .a; water mask in w.
       vec4 detail(sampler2D t, mat4 M, float hw, vec3 p, out float land) {
@@ -134,8 +153,14 @@ export function makeEarth(tex: {
           tn = mix(tn, vec3(0.0, 0.0, 1.0), photo);
         }
         albedo = mix(albedo, photoCol * 0.62, photo * (1.0 - water * detAWater));
+        if (detLOn > 0.5 && detMapOn > 0.5) {
+          vec3 lp0 = (detAM * vec4(vPos, 1.0)).xyz;
+          vec2 m0 = lp0.xz / (2.0 * detLHalf) + 0.5;
+          float road = smoothstep(0.35, 0.9, texture2D(detL, m0).r) * photo * (1.0 - water);
+          albedo = mix(albedo, vec3(0.42, 0.41, 0.39), road * 0.4 * detMapOn);
+        }
         // Under the photo layer the lake keeps its own colour.
-        albedo = mix(albedo, vec3(0.012, 0.03, 0.045), photo * water * detAWater);
+        albedo = mix(albedo, mix(vec3(0.012, 0.03, 0.045), photoCol * 0.5, detKeep), photo * water * detAWater);
         vec3 N = normalize(east * tn.x * 0.9 + north * tn.y * 0.9 + n * tn.z);
         N = normalize(mix(N, n, water));
 
@@ -151,6 +176,7 @@ export function makeEarth(tex: {
 
         vec3 sun = sunTint(mu) * 3.2;
         float diff = max(dot(N, L), 0.0);
+        shadow *= mix(1.0, 0.25 + 0.75 * groundShadow(vPos + n * 0.002), photo);
         vec3 col = albedo * sun * diff * shadow;
         // Sky fill on the day side.
         col += albedo * vec3(0.18, 0.26, 0.42) * 0.12 * lit;
@@ -174,7 +200,7 @@ export function makeEarth(tex: {
           if (rm.x > 0.0 && rm.x < 1.0 && rm.y > 0.0 && rm.y < 1.0) {
             float re = smoothstep(0.0, 0.1, min(min(rm.x, 1.0 - rm.x), min(rm.y, 1.0 - rm.y))) * detROn;
             float rl = texture2D(detR, rm).r;
-            lights = mix(lights, pow(rl, 1.7) * 0.85, re);
+            lights = mix(lights, pow(rl, 2.2) * 0.65, re);
           }
         }
         // Up close, the real street grid stands in for the blurred satellite glow.
@@ -313,7 +339,7 @@ export function makeEarth(tex: {
         float pR = 3.0 / (16.0 * 3.14159) * (1.0 + mu * mu);
         float g = 0.76;
         float pM = 3.0 / (8.0 * 3.14159) * ((1.0 - g * g) * (1.0 + mu * mu)) / ((2.0 + g * g) * pow(1.0 + g * g - 2.0 * g * mu, 1.5));
-        vec3 col = 12.0 * strength * (sumR * BR * pR + sumM * BM * pM);
+        vec3 col = 12.0 * (ground ? strength : 1.0) * (sumR * BR * pR + sumM * BM * pM);
         vec3 trans = exp(-(BR * odR + BM * 1.1 * odM));
         float tr = ground ? dot(trans, vec3(0.3333)) : 1.0;
         gl_FragColor = vec4(col, mix(1.0, tr, strength));

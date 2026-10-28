@@ -43,7 +43,7 @@ export const chapters: Chapter[] = [
   {
     id: 'melbourne',
     place: 'Albert Park, Melbourne',
-    view: { lat: -37.8462, lon: 144.9695, range: 3.6, heading: 342, pitch: 48 },
+    view: { lat: -37.8478, lon: 144.9705, range: 6.2, heading: 345, pitch: 50 },
     title: 'F1 Pixel Cup',
     tagline: "Arcade racing, played by a real paddock's rules.",
     body: [
@@ -60,7 +60,7 @@ export const chapters: Chapter[] = [
   {
     id: 'hongkong',
     place: 'Victoria Harbour, Hong Kong',
-    view: { lat: 21.9, lon: 114.1, range: 240, heading: 350, pitch: 66 },
+    view: { lat: 22.2, lon: 114.165, range: 24, heading: 352, pitch: 34 },
     title: 'CORANTO',
     tagline: 'The news, placed on the planet.',
     body: [
@@ -77,7 +77,7 @@ export const chapters: Chapter[] = [
   {
     id: 'bletchley',
     place: 'Bletchley Park, England',
-    view: { lat: 51.0, lon: -1.6, range: 1250, heading: 6, pitch: 66 },
+    view: { lat: 51.35, lon: -0.95, range: 330, heading: 4, pitch: 52 },
     title: 'Bombechat',
     tagline: 'Messages that never touch the internet.',
     body: [

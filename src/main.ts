@@ -233,12 +233,12 @@ const albPatch = surfacePatch(ALBERT.lat, ALBERT.lon, 1.4, earth.surfaceMat, 360
 scene.add(chiPatch, albPatch)
 
 // Photo layers for close-ups: NAIP aerial photography over Chicago, Sentinel-2 elsewhere.
-type Place = { lat: number; lon: number; layers: { url: string; half: number }[]; lights?: { url: string; half: number; street: number }; region: string; water: number; M: THREE.Matrix4; tex: (THREE.Texture | null)[]; light: THREE.Texture | null; regionTex: THREE.Texture | null; loading: boolean }
+type Place = { lat: number; lon: number; keep?: number; map?: number; layers: { url: string; half: number }[]; lights?: { url: string; half: number; street: number }; region: string; water: number; M: THREE.Matrix4; tex: (THREE.Texture | null)[]; light: THREE.Texture | null; regionTex: THREE.Texture | null; loading: boolean }
 const places: Place[] = [
   { lat: CHICAGO.lat, lon: CHICAGO.lon, water: 1, layers: [{ url: '/places/chicago-wide.webp', half: 32768 }, { url: '/places/chicago-outer.webp', half: 10240 }, { url: '/places/chicago-inner.webp', half: 3072 }], lights: { url: '/places/chicago-lights.webp', half: 10240, street: 1 }, region: '/places/chicago-region-lights.webp' },
-  { lat: -37.8455, lon: 144.9705, water: 0, layers: [{ url: '/places/melbourne.webp', half: 7000 }], lights: { url: '/places/melbourne-lights.webp', half: 7000, street: 1 }, region: '' },
-  { lat: 22.3, lon: 114.17, water: 0, layers: [{ url: '/places/hongkong.webp', half: 450000 }], region: '/places/hongkong-lights.webp' },
-  { lat: 51.997, lon: -0.741, water: 0, layers: [{ url: '/places/bletchley.webp', half: 450000 }], region: '/places/bletchley-lights.webp' },
+  { lat: -37.8455, lon: 144.9705, water: 1, keep: 1, map: 1, layers: [{ url: '/places/melbourne.webp', half: 7000 }], lights: { url: '/places/melbourne-lights.webp', half: 7000, street: 1 }, region: '' },
+  { lat: 22.29, lon: 114.17, water: 1, keep: 1, layers: [{ url: '/places/hongkong.webp', half: 450000 }, { url: '/places/hongkong-close.webp', half: 16000 }], lights: { url: '/places/hongkong-lights.webp', half: 16000, street: 1 }, region: '/places/hongkong-region-lights.webp' },
+  { lat: 51.997, lon: -0.741, water: 0, keep: 1, layers: [{ url: '/places/bletchley.webp', half: 450000 }, { url: '/places/bletchley-mid.webp', half: 200000 }], region: '/places/bletchley-region-lights.webp' },
 ].map((p) => {
   const { east, north, up } = enu(p.lat, p.lon)
   const m = new THREE.Matrix4().makeBasis(east, up, north.clone().negate()).setPosition(latLon(p.lat, p.lon))
@@ -261,6 +261,7 @@ function loadPlace(p: Place) {
     loader.loadAsync(p.region).then((t) => {
       t.flipY = false
       t.colorSpace = THREE.NoColorSpace
+      t.anisotropy = renderer.capabilities.getMaxAnisotropy()
       p.regionTex = t
     })
   if (p.lights)
@@ -297,6 +298,8 @@ function usePlace(cam: THREE.Vector3) {
     u.detAM.value = best.M
     u.detAHalf.value = best.layers[0].half
     u.detAWater.value = best.water
+    u.detKeep.value = best.keep ?? 0
+    u.detMapOn.value = best.map ?? 0
     u.detLOn.value = best.light ? 1 : 0
     if (best.light && best.lights) {
       u.detL.value = best.light
@@ -362,6 +365,41 @@ const at = (id: string) => chapters.findIndex((c) => c.id === id)
 const hold = (i: number) => (p: number) => sstep(i - 0.12, i - 0.02, p) * (1 - sstep(i + 0.3, i + 0.42, p))
 pin('Victoria Harbour', 22.285, 114.17, hold(at('hongkong')))
 pin('Bletchley Park', 51.997, -0.741, hold(at('bletchley')))
+
+// Sun shadows for the city: the towers drawn from the sun into a depth map, 10 km across.
+const SH = 4096
+const shadowRT = new THREE.WebGLRenderTarget(SH, SH, { depthBuffer: true })
+shadowRT.depthTexture = new THREE.DepthTexture(SH, SH, THREE.UnsignedIntType)
+const shadowCam = new THREE.OrthographicCamera(-5, 5, 5, -5, 1, 70)
+const shadowScene = new THREE.Scene()
+const shadowCenter = latLon(41.8835, -87.6305)
+let shadowSun = new THREE.Vector3()
+function updateShadow(sun: THREE.Vector3) {
+  if (!city) return
+  if (shadowSun.angleTo(sun) < 0.0004 && shadowScene.children.length) return
+  shadowSun = sun.clone()
+  if (!shadowScene.children.length) {
+    const m = new THREE.Mesh(city.mesh.geometry, new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide }))
+    m.matrixAutoUpdate = false
+    m.matrix.copy(city.mesh.matrix)
+    m.frustumCulled = false
+    shadowScene.add(m)
+  }
+  shadowCam.position.copy(shadowCenter).addScaledVector(sun, 35)
+  shadowCam.up.copy(shadowCenter).normalize()
+  shadowCam.lookAt(shadowCenter)
+  shadowCam.updateMatrixWorld()
+  shadowCam.updateProjectionMatrix()
+  renderer.setRenderTarget(shadowRT)
+  renderer.clear()
+  renderer.render(shadowScene, shadowCam)
+  renderer.setRenderTarget(null)
+  const vp = new THREE.Matrix4().multiplyMatrices(shadowCam.projectionMatrix, shadowCam.matrixWorldInverse)
+  earth.surfaceMat.uniforms.shadowMW.value.copy(vp)
+  earth.surfaceMat.uniforms.shadowMap.value = shadowRT.depthTexture
+  city.mat.uniforms.shadowM.value.copy(vp).multiply(city.mesh.matrix)
+  city.mat.uniforms.shadowMap.value = shadowRT.depthTexture
+}
 
 // Chicago's buildings load once the globe is up.
 let city: Awaited<ReturnType<typeof makeChicago>> | null = null
@@ -476,14 +514,26 @@ function frame(now: number) {
   earth.cloudMat.uniforms.fade.value = sstep(25, 140, alt) * (0.35 + 0.65 * sstep(300, 1400, alt))
   earth.surfaceMat.uniforms.cloudFade.value = sstep(8, 80, alt)
   stars.material.uniforms.dim.value = sstep(60, 400, alt)
-  earth.airMat.uniforms.strength.value = 0.6 + 0.4 * sstep(15, 250, alt)
+  earth.airMat.uniforms.strength.value = 0.22 + 0.78 * sstep(20, 450, alt)
   earth.surfaceMat.uniforms.lightsScale.value = 0.25 + 0.75 * sstep(30, 400, alt)
 
   if (city) {
     const near = 1 - sstep(25, 90, camera.position.distanceTo(latLon(CHICAGO.lat, CHICAGO.lon)))
     city.mesh.visible = near > 0
+    if (near <= 0) earth.surfaceMat.uniforms.shadowOn.value = 0
     city.mat.uniforms.fade.value = near
     if (near > 0) {
+      const lit = sun.dot(latLon(CHICAGO.lat, CHICAGO.lon).normalize()) > 0.02
+      if (lit) updateShadow(sun)
+      city.mat.uniforms.shadowOn.value = lit ? 1 : 0
+      earth.surfaceMat.uniforms.shadowOn.value = lit ? 1 : 0
+      const po = places[0].tex[1]
+      const pi = places[0].tex[2]
+      if (po && pi && !city.mat.uniforms.photoOn.value) {
+        city.mat.uniforms.photoO.value = po
+        city.mat.uniforms.photoI.value = pi
+        city.mat.uniforms.photoOn.value = 1
+      }
       const inv = city.mesh.matrix.clone().invert()
       city.mat.uniforms.camLocal.value.copy(camera.position).applyMatrix4(inv)
       city.mat.uniforms.sunLocal.value.copy(tmp.copy(sun).multiplyScalar(1e5).add(latLon(CHICAGO.lat, CHICAGO.lon)).applyMatrix4(inv)).normalize()
@@ -552,4 +602,4 @@ document.documentElement.classList.add('ready')
 requestAnimationFrame(frame)
 
 // For tests and the capture script.
-Object.assign(window, { __globe: { renderer, scene, camera, chapters, go, get city() { return city } } })
+Object.assign(window, { __globe: { renderer, scene, camera, chapters, go, shadowScene, shadowCam, shadowRT, earth, get city() { return city } } })

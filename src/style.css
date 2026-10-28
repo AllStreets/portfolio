@@ -89,7 +89,8 @@ a { color: inherit; }
   line-height: 1.25;
   letter-spacing: -0.012em;
 }
-.hero-now { margin: 18px 0 0; max-width: 34em; color: var(--ink-2); font-size: 16px; }
+.hero-now { margin: 18px 0 0; color: var(--ink-2); font-size: 16px; white-space: nowrap; }
+.hero-now time { white-space: nowrap; }
 .hero-now time { color: var(--ink); font-variant-numeric: tabular-nums; }
 .hero-go { margin: 34px 0 0; color: var(--ink-3); font-size: 14px; }
 .hero-go::after {
@@ -219,9 +220,10 @@ input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border-radius
 .ledger-links { display: flex; gap: 18px; justify-content: flex-end; white-space: nowrap; }
 .ledger .ledger-links a { color: var(--ink); font-size: 15px; }
 
-.contact { margin-top: 110px; max-width: 40em; }
-.contact p { color: var(--ink-2); }
-.contact-links { display: flex; flex-wrap: wrap; gap: 12px 30px; margin-top: 22px; font-size: 20px; }
+.contact { margin-top: 110px; }
+.contact p { color: var(--ink-2); max-width: 40em; }
+.contact .contact-links { max-width: none; }
+.contact-links { display: flex; flex-wrap: wrap; gap: 12px 44px; margin-top: 22px; font-size: 20px; }
 .contact-links a { color: var(--ink); }
 
 .credits { margin-top: 110px; padding-top: 24px; border-top: 1px solid var(--line); max-width: 46em; }
@@ -245,7 +247,7 @@ input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border-radius
   }
   .panel-orbit { padding-bottom: 120px; }
   .hero-line { font-size: 21px; margin-top: 18px; }
-  .hero-now { font-size: 15px; }
+  .hero-now { font-size: 15px; white-space: normal; }
   .panel .text { left: 16px; right: 16px; width: auto; bottom: 108px; }
   .title { font-size: 34px; }
   .tagline { font-size: 18px; margin-bottom: 12px; }

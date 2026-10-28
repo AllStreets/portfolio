@@ -331,8 +331,9 @@ async function loadPlace(p: Place) {
   for (let i = p.layers.length - 1; i >= 0; i--) jobs.push([p.layers[i].url, (u) => (p.tex[i] = u)])
   if (p.region) jobs.push([p.region, (u) => (p.regionTex = u)])
   for (const [url, done] of jobs) {
-    const t = await bitmapTex(url, false)
-    upload(prep(t), done)
+    // A file that fails is skipped; the rest still load.
+    const t = await bitmapTex(url, false).catch(() => null)
+    if (t) upload(prep(t), done)
   }
 }
 function usePlace(cam: THREE.Vector3) {
@@ -496,7 +497,7 @@ const loadCity = () =>
   await loadPlace(places[0])
   await fourK
   for (const p of places.slice(1)) await loadPlace(p)
-  await c.loadOuter()
+  await c.loadOuter().catch(() => {})
   c.group.visible = true
   await renderer.compileAsync(scene, camera).catch(() => {})
   outerReady = true
@@ -625,7 +626,9 @@ function frame(now: number) {
   stars.material.uniforms.dim.value = sstep(60, 400, alt)
   earth.airMat.uniforms.strength.value = 0.22 + 0.78 * sstep(20, 450, alt)
   // Close to the ground the 3 km satellite lights are one blur; without a street map, let them go dark.
-  earth.surfaceMat.uniforms.lightsScale.value = (0.25 + 0.75 * sstep(30, 400, alt)) * (earth.surfaceMat.uniforms.detLOn.value ? 1 : sstep(15, 70, alt))
+  const coarse = earth.surfaceMat.uniforms.detLOn.value ? 1 : sstep(15, 70, alt)
+  earth.surfaceMat.uniforms.coarseFade.value = coarse
+  earth.surfaceMat.uniforms.lightsScale.value = (0.25 + 0.75 * sstep(30, 400, alt)) * coarse
 
   if (city) {
     const near = 1 - sstep(25, 90, camera.position.distanceTo(latLon(CHICAGO.lat, CHICAGO.lon)))

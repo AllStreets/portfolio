@@ -45,6 +45,7 @@ export function makeEarth(tex: {
       cloudSpin: { value: 0 },
       cloudFade: { value: 1 },
       lightsScale: { value: 1 },
+      coarseFade: { value: 1 },
       shadowMap: { value: null as THREE.Texture | null },
       shadowMW: { value: new THREE.Matrix4() },
       shadowOn: { value: 0 },
@@ -87,7 +88,7 @@ export function makeEarth(tex: {
       ${common}
       uniform vec3 sunDir;
       uniform sampler2D dayMap, nightMap, reliefMap, cloudMap, detA, detB, detC, detL, detR;
-      uniform float lightsScale, shadowOn;
+      uniform float lightsScale, shadowOn, coarseFade;
       uniform sampler2D shadowMap;
       uniform mat4 shadowMW;
       float groundShadow(vec3 p) {
@@ -203,7 +204,8 @@ export function makeEarth(tex: {
           if (rm.x > 0.0 && rm.x < 1.0 && rm.y > 0.0 && rm.y < 1.0) {
             float re = smoothstep(0.0, 0.1, min(min(rm.x, 1.0 - rm.x), min(rm.y, 1.0 - rm.y))) * detROn;
             float rl = texture2D(detR, rm).r;
-            lights = mix(lights, pow(rl, 2.2) * 0.65, re);
+            // Like the global night image, these 500 m lights blur near the ground: dark there until the street map is in.
+            lights = mix(lights, pow(rl, 2.2) * 0.65 * coarseFade, re);
           }
         }
         // Up close, the real street grid stands in for the blurred satellite glow.

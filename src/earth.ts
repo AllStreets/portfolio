@@ -176,7 +176,7 @@ export function makeEarth(tex: {
 
         vec3 sun = sunTint(mu) * 3.2;
         float diff = max(dot(N, L), 0.0);
-        shadow *= mix(1.0, 0.25 + 0.75 * groundShadow(vPos + n * 0.002), photo);
+        shadow *= mix(1.0, 0.3 + 0.7 * groundShadow(vPos + n * 0.002), photo * (1.0 - water));
         vec3 col = albedo * sun * diff * shadow;
         // Sky fill on the day side.
         col += albedo * vec3(0.18, 0.26, 0.42) * 0.12 * lit;
@@ -216,7 +216,7 @@ export function makeEarth(tex: {
           float fadeL = smoothstep(0.0, 0.08, min(min(m.x, 1.0 - m.x), min(m.y, 1.0 - m.y)));
           // Beyond the street map, the photo's bright pavement stands in at a low level.
           float pave = smoothstep(0.2, 0.45, dot(photoCol, vec3(0.3, 0.55, 0.15))) * 0.08;
-          lights = mix(lights, mix(pave * detLStreet, mix(st * 1.1, pow(st, 1.35) * 0.62, detLStreet), inside * fadeL), photo);
+          lights = mix(lights, mix(pave * detLStreet, mix(st * 1.1, pow(st, 1.5) * 0.45, detLStreet), inside * fadeL), photo);
         }
         col += vec3(1.0, 0.56, 0.24) * lights * night * 1.6 * (1.0 - water * 0.95);
 

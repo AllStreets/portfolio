@@ -30,7 +30,7 @@ export const chapters: Chapter[] = [
     tagline: 'A city you can fly through.',
     body: [
       'All of Chicago in the browser, built from City of Chicago and OpenStreetMap data. More than 100,000 buildings stand at their true heights, streamed nearest first, and light up floor by floor as the real sun goes down.',
-      'The skyline under you right now is 72,000 of those buildings, from the same data, lit by the same sun.',
+      'The skyline under you right now is the project itself: 88,000 of its buildings, with their facades and landmark colours, lit by the real sun.',
     ],
     stack: 'React Three Fiber, Three.js, GLSL',
     links: [
@@ -65,7 +65,6 @@ export const chapters: Chapter[] = [
     tagline: 'The news, placed on the planet.',
     body: [
       'Live headlines on a 3D globe, each carrying its publisher, link, time and place. Stories are grouped across outlets, a source that goes down says so instead of going quiet, and anything a model wrote is labeled as such.',
-      "Built on Bilawal Sidhu's God's Eye View; I added the news layer and the grounded briefs.",
     ],
     stack: 'CesiumJS, Node, Supabase',
     links: [

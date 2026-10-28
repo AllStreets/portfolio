@@ -4,7 +4,7 @@ My portfolio is a flight around the real Earth. Each project sits where it belon
 
 ![The opening view: the Earth lit as it is right now](docs/hero.jpg)
 
-Close to the ground, the globe hands over to real data. Chicago is USGS aerial photography with 72,000 buildings at their recorded heights on top, lit and shadowed by the sun, and at night its streetlights are every OpenStreetMap road within ten kilometres of the Loop. Albert Park is traced from the circuit's real outline and laid where the track runs.
+Close to the ground, the globe hands over to real data. Chicago is USGS aerial photography with 88,000 buildings from my Chicago Open World project on top, drawn with its facade shader, lit and shadowed by the sun, and at night its streetlights are every OpenStreetMap road within ten kilometres of the Loop. Albert Park is traced from the circuit's real outline and laid where the track runs.
 
 ![Chicago at night: the street grid lit, towers lit floor by floor](docs/chicago-night.jpg)
 
@@ -16,7 +16,7 @@ Three.js and hand-written GLSL, no framework. The Earth is one shader: Blue Marb
 
 The flight between places follows the great circle and climbs with distance, so long hops rise far enough to show both ends. Scrolling sets the destination and the camera eases toward it.
 
-The `tools/` folder rebuilds every asset from public sources: `textures.py` for the globe, `chicago.py` and `street_lights.py` for the city, `imagery.py` for the aerial and satellite layers. `tools/shoot.mjs` screenshots each chapter from a headless browser.
+The `tools/` folder rebuilds every asset from public sources: `textures.py` for the globe, `city_tiles.mjs` (buildings from Chicago Open World) and `street_lights.py` for the city, `imagery.py` for the aerial and satellite layers. `tools/shoot.mjs` screenshots each chapter from a headless browser.
 
 ## Running it
 

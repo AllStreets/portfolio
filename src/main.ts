@@ -199,6 +199,7 @@ let dpr = Math.min(devicePixelRatio, small ? 1.5 : 1.75)
 renderer.setPixelRatio(dpr)
 
 const scene = new THREE.Scene()
+scene.fog = new THREE.FogExp2(0x8899aa, 0.05) // affects only the city's standard material
 const camera = new THREE.PerspectiveCamera(small ? 50 : 38, innerWidth / innerHeight, 0.002, 4e6)
 
 function resize() {
@@ -378,12 +379,16 @@ function updateShadow(sun: THREE.Vector3) {
   if (!city) return
   if (shadowSun.angleTo(sun) < 0.0004 && shadowScene.children.length) return
   shadowSun = sun.clone()
-  if (!shadowScene.children.length) {
-    const m = new THREE.Mesh(city.mesh.geometry, new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide }))
-    m.matrixAutoUpdate = false
-    m.matrix.copy(city.mesh.matrix)
-    m.frustumCulled = false
-    shadowScene.add(m)
+  if (shadowScene.children.length !== city.meshes.length) {
+    shadowScene.clear()
+    const depth = new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide })
+    for (const src of city.meshes) {
+      const m = new THREE.Mesh(src.geometry, depth)
+      m.matrixAutoUpdate = false
+      m.matrix.copy(src.matrixWorld)
+      m.frustumCulled = false
+      shadowScene.add(m)
+    }
   }
   shadowCam.position.copy(shadowCenter).addScaledVector(sun, 35)
   shadowCam.up.copy(shadowCenter).normalize()
@@ -397,16 +402,20 @@ function updateShadow(sun: THREE.Vector3) {
   const vp = new THREE.Matrix4().multiplyMatrices(shadowCam.projectionMatrix, shadowCam.matrixWorldInverse)
   earth.surfaceMat.uniforms.shadowMW.value.copy(vp)
   earth.surfaceMat.uniforms.shadowMap.value = shadowRT.depthTexture
-  city.mat.uniforms.shadowM.value.copy(vp).multiply(city.mesh.matrix)
-  city.mat.uniforms.shadowMap.value = shadowRT.depthTexture
+  // The towers themselves take three.js's own shadows from the same sun.
+  city.sun.position.copy(shadowCenter).addScaledVector(sun, 35)
+  renderer.shadowMap.needsUpdate = true
 }
 
 // Chicago's buildings load once the globe is up.
+renderer.shadowMap.enabled = true
+renderer.shadowMap.type = THREE.PCFSoftShadowMap
+renderer.shadowMap.autoUpdate = false
 let city: Awaited<ReturnType<typeof makeChicago>> | null = null
 const loadCity = () =>
-  makeChicago('/chicago/buildings.bin').then((c) => {
+  makeChicago(renderer, scene).then((c) => {
     city = c
-    scene.add(c.mesh)
+    c.outer.then(() => (shadowSun = new THREE.Vector3()))
   })
 ;('requestIdleCallback' in window ? requestIdleCallback : setTimeout)(() => loadCity(), { timeout: 1200 } as never)
 
@@ -519,24 +528,24 @@ function frame(now: number) {
 
   if (city) {
     const near = 1 - sstep(25, 90, camera.position.distanceTo(latLon(CHICAGO.lat, CHICAGO.lon)))
-    city.mesh.visible = near > 0
+    city.group.visible = near > 0
     if (near <= 0) earth.surfaceMat.uniforms.shadowOn.value = 0
-    city.mat.uniforms.fade.value = near
     if (near > 0) {
-      const lit = sun.dot(latLon(CHICAGO.lat, CHICAGO.lon).normalize()) > 0.02
+      const mu = sun.dot(latLon(CHICAGO.lat, CHICAGO.lon).normalize())
+      const lit = mu > 0.02
       if (lit) updateShadow(sun)
-      city.mat.uniforms.shadowOn.value = lit ? 1 : 0
       earth.surfaceMat.uniforms.shadowOn.value = lit ? 1 : 0
-      const po = places[0].tex[1]
-      const pi = places[0].tex[2]
-      if (po && pi && !city.mat.uniforms.photoOn.value) {
-        city.mat.uniforms.photoO.value = po
-        city.mat.uniforms.photoI.value = pi
-        city.mat.uniforms.photoOn.value = 1
-      }
-      const inv = city.mesh.matrix.clone().invert()
-      city.mat.uniforms.camLocal.value.copy(camera.position).applyMatrix4(inv)
-      city.mat.uniforms.sunLocal.value.copy(tmp.copy(sun).multiplyScalar(1e5).add(latLon(CHICAGO.lat, CHICAGO.lon)).applyMatrix4(inv)).normalize()
+      const day = sstep(-0.06, 0.12, mu)
+      const warm = sstep(0.0, 0.35, mu)
+      city.sun.color.setRGB(1, 0.45 + 0.5 * warm, 0.2 + 0.68 * warm)
+      city.sun.intensity = 3.2 * day
+      city.sun.castShadow = lit
+      city.sky.intensity = 0.06 + 0.9 * day
+      city.material.envMapIntensity = 0.04 + 0.6 * day
+      city.uniforms.uNight.value = 1 - sstep(-0.1, 0.03, mu)
+      city.uniforms.uTime.value = now / 1000
+      // Air between the camera and the towers, the colour of the sky at that hour.
+      ;(scene.fog as THREE.FogExp2).color.setRGB(0.012 + 0.48 * day, 0.016 + 0.56 * day, 0.03 + 0.66 * day)
     }
   }
   const nearAlbert = 1 - sstep(20, 70, camera.position.distanceTo(latLon(ALBERT.lat, ALBERT.lon)))

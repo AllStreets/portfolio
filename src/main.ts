@@ -525,7 +525,7 @@ function frame(now: number) {
   if (Math.abs(goal - shown) < 1e-4) shown = goal
 
   const v = viewAt(shown)
-  const drift = reduced || qs.has('still') ? 0 : Math.sin(now / 9000) * (v.range < 50 ? 4 : 2)
+  const drift = reduced || qs.has('still') ? 0 : Math.sin(now / 9000) * 2 * sstep(40, 200, v.range)
   place(v, drift)
   const pathOn = sstep(pathIndex - 0.4, pathIndex, shown)
   const shift = small ? 0 : ((1 - sstep(0.15, 0.6, shown)) * 0.16 + pathOn * 0.1) * innerWidth
@@ -560,10 +560,10 @@ function frame(now: number) {
       city.sun.color.setRGB(1, 0.45 + 0.5 * warm, 0.2 + 0.68 * warm)
       city.sun.intensity = 3.2 * day
       city.sun.castShadow = lit
-      city.sky.intensity = 0.06 + 0.9 * day
+      city.sky.intensity = 0.03 + 0.93 * day
       const env = day > 0.3 ? city.dayEnv : city.nightEnv
       if (city.material.envMap !== env) city.material.envMap = env
-      city.material.envMapIntensity = day > 0.3 ? 0.6 * day : 0.22
+      city.material.envMapIntensity = day > 0.3 ? 0.6 * day : 0.12
       city.uniforms.uNight.value = 1 - sstep(-0.1, 0.03, mu)
       city.uniforms.uTime.value = now / 1000
       // Air between the camera and the towers, the colour of the sky at that hour.

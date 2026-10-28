@@ -456,15 +456,13 @@ if (!isRoof && !isParapet && !isVenue && uNight > 0.001) {
   vec3 warm = vec3(1.0, 0.72, 0.45), cool = vec3(0.78, 0.86, 1.0);
   vec3 wc = mix(warm, cool, step(isResidential ? 0.93 : 0.7, owHash(vec2(cell.y, vSeed * 13.0))));
   float level = 0.45 + 0.55 * owHash(cell * 1.7 + 3.1);
-  // Globe: when a window cell is under a pixel, glow at the wall's average instead of sparkling.
+  // Globe: seen from the air, each lit window is a crisp point of light on a dark tower, as in Chicago Open
+  // World at night. Up close the frame inset shows; from far away the whole cell lights, so it reads as a dot.
   vec2 fwc = gFwCell;
-  // Individual windows only once a floor is several pixels tall; before that, whole floors glow evenly.
-  float farW = smoothstep(0.05, 0.22, max(fwc.x, fwc.y));
-  float floorOn = step(0.55 - 0.4 * busy, floorH);
-  float floorVar = mix(0.25 + 1.5 * floorOn, 1.0, smoothstep(0.3, 0.7, fwc.y));
-  float near = win * inset * lit * level;
-  float avg = 0.3 * busy * (0.5 + 0.9 * fract(vSeed * 3.1)) * floorVar * (fi == 3 ? 1.3 : 1.0);
-  totalEmissiveRadiance += wc * mix(near, avg, farW) * uNight * 0.9 * uLitBoost;
+  float far = smoothstep(0.15, 0.45, max(fwc.x, fwc.y));
+  float near = mix(win * inset, 1.0, far) * lit * level;
+  near *= mix(1.0, 0.75, far);
+  totalEmissiveRadiance += wc * near * uNight * 1.1 * uLitBoost;
 }
 `
 

@@ -210,7 +210,7 @@ export function makeEarth(tex: {
           float inside = step(0.0, m.x) * step(m.x, 1.0) * step(0.0, m.y) * step(m.y, 1.0);
           // The carriageway at its real width (2.5 m per texel near the Loop) plus the soft spill around it.
           vec3 lt = texture2D(detL, m).rgb;
-          float st = lt.r * 0.75 + lt.g * 0.12;
+          float st = lt.r * 0.55 + lt.g * 0.08;
           float fadeL = smoothstep(0.0, 0.08, min(min(m.x, 1.0 - m.x), min(m.y, 1.0 - m.y)));
           // Beyond the street map, the photo's bright pavement stands in at a low level.
           float pave = smoothstep(0.2, 0.45, dot(photoCol, vec3(0.3, 0.55, 0.15))) * 0.08;

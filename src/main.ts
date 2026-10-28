@@ -228,8 +228,28 @@ composer.addPass(new OutputPass())
 resize()
 
 const loader = new THREE.TextureLoader()
+// Images decode off the main thread (createImageBitmap), and each new texture goes to the GPU on its own
+// frame through a queue, so no frame pays for more than one upload. Nothing waits until a place is reached.
+const bitmapOK = 'createImageBitmap' in window
+const uploads: { t: THREE.Texture; done: (t: THREE.Texture) => void }[] = []
+function upload(t: THREE.Texture, done: (t: THREE.Texture) => void = () => {}) {
+  uploads.push({ t, done })
+}
+async function bitmapTex(url: string, flip: boolean) {
+  if (!bitmapOK) {
+    const t = await loader.loadAsync(url)
+    t.flipY = flip
+    return t
+  }
+  const blob = await (await fetch(url)).blob()
+  const bmp = await createImageBitmap(blob, { imageOrientation: flip ? 'flipY' : 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none' })
+  const t = new THREE.Texture(bmp as unknown as HTMLImageElement)
+  t.flipY = false
+  t.needsUpdate = true
+  return t
+}
 async function tex(url: string, srgb: boolean) {
-  const t = await loader.loadAsync(url)
+  const t = await bitmapTex(url, true)
   t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
   t.anisotropy = renderer.capabilities.getMaxAnisotropy()
   t.wrapS = THREE.RepeatWrapping
@@ -265,29 +285,15 @@ const places: Place[] = [
 function loadPlace(p: Place) {
   if (p.loading) return
   p.loading = true
-  p.layers.forEach((l, i) =>
-    loader.loadAsync(l.url).then((t) => {
-      t.flipY = false
-      t.colorSpace = THREE.NoColorSpace
-      t.anisotropy = renderer.capabilities.getMaxAnisotropy()
-      t.minFilter = THREE.LinearMipmapLinearFilter
-      p.tex[i] = t
-    }),
-  )
-  if (p.region)
-    loader.loadAsync(p.region).then((t) => {
-      t.flipY = false
-      t.colorSpace = THREE.NoColorSpace
-      t.anisotropy = renderer.capabilities.getMaxAnisotropy()
-      p.regionTex = t
-    })
-  if (p.lights)
-    loader.loadAsync(p.lights.url).then((t) => {
-      t.flipY = false
-      t.colorSpace = THREE.NoColorSpace
-      t.anisotropy = renderer.capabilities.getMaxAnisotropy()
-      p.light = t
-    })
+  const prep = (t: THREE.Texture) => {
+    t.colorSpace = THREE.NoColorSpace
+    t.anisotropy = renderer.capabilities.getMaxAnisotropy()
+    t.minFilter = THREE.LinearMipmapLinearFilter
+    return t
+  }
+  p.layers.forEach((l, i) => bitmapTex(l.url, false).then((t) => upload(prep(t), (u) => (p.tex[i] = u))))
+  if (p.region) bitmapTex(p.region, false).then((t) => upload(prep(t), (u) => (p.regionTex = u)))
+  if (p.lights) bitmapTex(p.lights.url, false).then((t) => upload(prep(t), (u) => (p.light = u)))
 }
 function usePlace(cam: THREE.Vector3) {
   const u = earth.surfaceMat.uniforms
@@ -296,7 +302,6 @@ function usePlace(cam: THREE.Vector3) {
   for (const p of places) {
     const d = cam.distanceTo(latLon(p.lat, p.lon))
     const reach = Math.max(1500, p.layers[0].half / 1000 * 4)
-    if (d < reach * 1.5) loadPlace(p)
     if (d < reach && d < bd) {
       bd = d
       best = p
@@ -337,7 +342,8 @@ function usePlace(cam: THREE.Vector3) {
     }
   }
 }
-loadPlace(places[0])
+// Every place loads in the background from the start, nearest first.
+places.forEach((p, i) => setTimeout(() => loadPlace(p), 600 + i * 900))
 
 const circuit = makeCircuit()
 scene.add(circuit.mesh)
@@ -432,10 +438,20 @@ renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.shadowMap.autoUpdate = false
 let city: Awaited<ReturnType<typeof makeChicago>> | null = null
+let outerReady = false
 const loadCity = () =>
   makeChicago(renderer, scene).then((c) => {
-    city = c
-    c.outer.then(() => (shadowSun = new THREE.Vector3()))
+    // Compile the city's shaders (and their shadow variants) now, while it is out of sight.
+    const was = c.group.visible
+    c.group.visible = true
+    renderer.compileAsync(scene, camera).catch(() => {}).finally(() => {
+      c.group.visible = was
+      city = c
+    })
+    c.outer.then(() => {
+      c.group.visible = true
+      renderer.compileAsync(scene, camera).catch(() => {}).finally(() => (outerReady = true))
+    })
   })
 ;('requestIdleCallback' in window ? requestIdleCallback : setTimeout)(() => loadCity(), { timeout: 1200 } as never)
 
@@ -448,13 +464,14 @@ if (!small && renderer.capabilities.maxTextureSize >= 8192) {
       tex('/earth/relief-8k.webp', false),
       tex('/earth/clouds-8k.webp', false),
     ])
+    await Promise.all([d8, n8, r8, c8].map((t) => new Promise((r) => upload(t, r))))
     const u = earth.surfaceMat.uniforms
     u.dayMap.value = d8
     u.nightMap.value = n8
     u.reliefMap.value = r8
     u.cloudMap.value = c8
     earth.cloudMat.uniforms.cloudMap.value = c8
-  }, 1500)
+  }, 4000)
 }
 
 // ---------- The sun ----------
@@ -518,6 +535,15 @@ function place(v: View, drift: number) {
 }
 
 function frame(now: number) {
+  if (city && !warmed && (warmedMeshes === 0 || outerReady)) warm()
+  // Big textures (the 8K Earth) go up only while the page is at rest, never mid-flight.
+  const settled = Math.abs(scrollY / SEG - shown) < 0.002 && now - lastMove > 700
+  const qi = uploads.findIndex((u) => settled || ((u.t.image as { width?: number })?.width ?? 0) <= 4096)
+  if (qi >= 0) {
+    const [next] = uploads.splice(qi, 1)
+    renderer.initTexture(next.t)
+    next.done(next.t)
+  }
   const dt = Math.min(0.1, (now - last) / 1000)
   last = now
   const goal = clamp(scrollY / SEG, 0, N - 1)
@@ -637,7 +663,42 @@ function frame(now: number) {
   }
   requestAnimationFrame(frame)
 }
-document.documentElement.classList.add('ready')
+// The globe fades in once Chicago has been rehearsed (or after 4 s at most), so the one-time cost of its
+// first shadow pass and night glow is spent behind the fade, not during a visitor's first scroll.
+let warmedMeshes = 0
+let lastMove = 0
+addEventListener('scroll', () => (lastMove = performance.now()), { passive: true })
+let warmed = false
+const reveal = () => document.documentElement.classList.add('ready')
+setTimeout(reveal, 4000)
+function warm() {
+  if (!city) return
+  warmedMeshes = city.meshes.length
+  warmed = outerReady
+  shadowSun = new THREE.Vector3()
+  const sd = sunDate()
+  const s0 = subsolar(sd)
+  const sun0 = latLon(s0.lat, s0.lon).normalize()
+  earth.shared.sunDir.value.copy(sun0)
+  const saved = { p: camera.position.clone(), q: camera.quaternion.clone(), up: camera.up.clone() }
+  place(chapters[1].view, 0)
+  camera.updateMatrixWorld()
+  city.group.visible = true
+  updateShadow(sun0)
+  renderer.shadowMap.needsUpdate = true
+  for (const night of [0, 1]) {
+    city.uniforms.uNight.value = night
+    if (composer && bloom) {
+      bloom.enabled = true
+      composer.render()
+    }
+    renderer.render(scene, camera)
+  }
+  camera.position.copy(saved.p)
+  camera.quaternion.copy(saved.q)
+  camera.up.copy(saved.up)
+  if (outerReady) requestAnimationFrame(reveal)
+}
 requestAnimationFrame(frame)
 
 // For tests and the capture script.

@@ -34,9 +34,12 @@ n = np.stack([-dx, dy, np.ones_like(h)], -1)
 n /= np.linalg.norm(n, axis=-1, keepdims=True)
 rgb = ((n * 0.5 + 0.5) * 255).astype(np.uint8)
 wm = Image.fromarray((water * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(1.2))
-img = Image.fromarray(rgb, 'RGB'); img.putalpha(wm)
+img = Image.fromarray(rgb, 'RGB')
 for w in [8192, 4096]:
-    img.resize((w, w // 2), Image.LANCZOS).save(f'{O}relief-{w // 1024}k.webp', quality=88, method=6)
+    # Resize colour and alpha apart: an RGBA resize premultiplies, which would zero the normals on land (alpha 0).
+    r = img.resize((w, w // 2), Image.LANCZOS)
+    r.putalpha(wm.resize((w, w // 2), Image.LANCZOS))
+    r.save(f'{O}relief-{w // 1024}k.webp', quality=88, method=6, exact=True)
 
 # Yale Bright Star Catalog: unit vectors (equatorial J2000), magnitude, temperature.
 stars = json.load(open(R + 'bsc.json'))

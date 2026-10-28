@@ -185,7 +185,7 @@ export function makeEarth(tex: {
         vec3 H = normalize(L + V);
         float nv = max(dot(n, V), 0.0);
         float F = 0.02 + 0.98 * pow(1.0 - nv, 5.0);
-        float spec = pow(max(dot(n, H), 0.0), 300.0) * 1.6 + pow(max(dot(n, H), 0.0), 40.0) * 0.03;
+        float spec = pow(max(dot(n, H), 0.0), 900.0) * 0.9 + pow(max(dot(n, H), 0.0), 120.0) * 0.12;
         col += water * (spec * sun * shadow * step(0.0, mu) + F * vec3(0.25, 0.45, 0.8) * 0.5 * lit);
 
         // City lights where the sun has gone.

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teardown: a case study</title>
+<meta name="description" content="How I designed Teardown, a Mac app that takes apart every installed app, explains what it finds with the evidence beside each claim, and lets you take back what you find.">
+<link rel="canonical" href="https://connor-evans.vercel.app/work/teardown/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Connor Evans">
+<meta property="og:url" content="https://connor-evans.vercel.app/work/teardown/">
+<meta property="og:title" content="Teardown: a case study">
+<meta property="og:description" content="Taking apart every app on a Mac, and letting you take back what you find.">
+<meta property="og:image" content="https://connor-evans.vercel.app/img/og-teardown.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Teardown: a case study">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#F5F0E6">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23121212'/%3E%3Ctext x='16' y='21.5' font-family='Arial' font-size='14' font-weight='700' text-anchor='middle' fill='%23F7F7F4'%3ECE%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="name" href="/">Connor Evans</a>
+    <nav aria-label="Site"><a href="/#work">Work</a><a href="/#how">How I work</a><a href="https://github.com/AllStreets">GitHub</a></nav>
+  </header>
+
+  <main class="paper">
+    <nav class="toc" aria-label="Sections">
+      <span class="eyebrow">Case study</span>
+      <a href="#problem">1. The problem</a>
+      <a href="#approach">2. The approach</a>
+      <a href="#decisions">3. Design decisions</a>
+      <a href="#results">4. Results</a>
+      <a href="#corrections">5. What I got wrong</a>
+      <a href="#limits">6. Limitations</a>
+      <a href="#next">7. What’s next</a>
+      <a href="#refs">References</a>
+    </nav>
+
+    <article>
+      <header>
+        <span class="eyebrow">Case study 4 of 5</span>
+        <h1>Teardown: taking apart every app on a Mac, and letting you take back what you find</h1>
+        <p class="byline">Connor Evans · Built October 19, 2026 · <a href="https://github.com/AllStreets/teardown">github.com/AllStreets/teardown</a></p>
+        <div class="abstract">
+          <b>Abstract</b>
+          <p>Apps update themselves, ask for permissions, start helpers at login and leave data behind when they’re deleted, and nothing on a Mac shows what changed underneath or lets you undo it. I built Teardown, a Mac app that reads every installed app the way a reverse engineer would, using Apple’s own command line tools, and explains what it finds in plain English with the evidence beside every claim. It then turns each finding into an action you can take back: roll back an update, revoke a permission, switch off a background service, or move leftovers to the Trash. On my own Mac it found that 20 of 74 installed apps are websites in a wrapper, carrying 21 separate copies of Chromium, that 108 permissions had been granted, and that 56 GB could be freed. No model runs anywhere in it. The design problem was making a forensic read legible to a non-engineer, and then making it safe to act on.</p>
+        </div>
+      </header>
+
+      <figure>
+        <img src="/img/teardown-front.webp" width="1440" height="900" alt="Teardown reading the Claude desktop app: a plain-English verdict above a radial map of the bundle with labelled parts">
+        <figcaption><b>Figure 1.</b> Teardown reading the Claude desktop app. The verdict is a template filled with measured values: the Electron version from its framework, the Chromium version from a string inside it.</figcaption>
+      </figure>
+
+      <h2 id="problem"><span class="n">1</span>The problem</h2>
+      <p>Everything a person normally sees about an app is written by someone with an interest in it. Release notes list features. Privacy labels are self-reported. A permission prompt appears once, with no history. Meanwhile the app itself, the bundle on your disk, is a document nobody edits for an audience: it holds the frameworks, the analytics SDKs, the entitlements Apple granted and every web address in the code.</p>
+      <p>The tools that read bundles exist, but they’re for engineers: <code>codesign</code>, <code>otool</code>, <code>plutil</code>. The question for Teardown was whether that forensic read could be made legible to anyone who has wondered what an app really is, and then useful enough to act on.</p>
+
+      <h2 id="approach"><span class="n">2</span>The approach</h2>
+      <p>Teardown is a local engine with a native Mac shell. The engine does the reading; the interface explains and acts.</p>
+      <ol>
+        <li><b>Read</b> walks each bundle file by file and builds a size map.</li>
+        <li><b>Detect</b> names the stack from concrete files: <code>Electron Framework.framework</code>, a Chromium <code>icudtl.dat</code>, the Swift runtime among linked libraries, a Go build ID.</li>
+        <li><b>Verify</b> reads the code signature, notarization and entitlements.</li>
+        <li><b>Extract</b> finds known SDKs and every web address written into the code.</li>
+        <li><b>Snapshot</b> records a fingerprint of each app, plus an APFS clone of it.</li>
+        <li><b>Compare</b> diffs every update against the last snapshot.</li>
+        <li><b>Act</b> offers an undoable action next to each finding.</li>
+      </ol>
+      <p>The Mac app is a small Rust shell (Tauri) that runs the engine beside it and shows the interface in the system’s own WebKit, so Teardown doesn’t ship a copy of Chromium itself. Pointed at itself, it says so.</p>
+
+      <h2 id="decisions"><span class="n">3</span>Design decisions</h2>
+
+      <h3>3.1 A radiograph, not a dashboard</h3>
+      <p>My earlier projects were dark dashboards. This subject is forensic: one specimen, examined closely. So each app is drawn as a radiograph on a lightbox. The page opens with a sentence, not a table, saying what the app is in words a non-engineer can repeat. Below it, a radial map of the bundle is labelled like an exploded-view teardown photo: leader lines run from the largest parts out to their names, sizes and share of the app. A percent scale rings the map, because the angle literally is share of bytes, and the bundle identifier runs up the plate’s edge like the codes printed on X-ray film.</p>
+      <p>The trade-off is that one app at a time is slower than a grid of tiles. The overview page answers the across-my-Mac question instead.</p>
+
+      <figure>
+        <img src="/img/teardown-overview.webp" width="1440" height="1099" alt="The overview: every installed app grouped by how it is built, with a measured strip of stacks">
+        <figcaption><b>Figure 2.</b> The overview. Every installed app grouped by stack, with the share of each stack drawn on the same measured strip used across the app.</figcaption>
+      </figure>
+
+      <h3>3.2 Evidence, never generation</h3>
+      <p>An AI summary of each app would have read better on the first day. It would also have been a claim nobody could check. Every statement in Teardown is read from a file or a signature, and the plain-English sentences are templates filled with values the tools measured. The interface shows the evidence beside each conclusion, and the README pairs each kind of claim with the Terminal command that reproduces it.</p>
+
+      <h3>3.3 Every action can be taken back</h3>
+      <p>Turning findings into buttons is only safe if the buttons can be undone, so that became the rule for every action. Rolling back an update restores an APFS clone Teardown kept when it recorded the app; clones share every block with the installed app until it changes, and an 8.8 GB app cloned in 35 MB of metadata. Taking back a permission uses Apple’s <code>tccutil</code>, so the app simply asks again. Startup items are disabled rather than deleted. Clean up only ever moves things to the Trash. Machine-wide changes go through macOS’s own password prompt.</p>
+
+      <figure>
+        <img src="/img/teardown-update.webp" width="1440" height="900" alt="The update scene with example data: the new version drawn over the outline of the old one, new parts labelled in amber, and a roll back button">
+        <figcaption><b>Figure 3.</b> The update scene, shown with example data. The new version is drawn over a dashed outline of the old one, and anything new glows amber with a label. Teardown’s first real catch was its own update, 0.2.0 to 0.3.0.</figcaption>
+      </figure>
+
+      <h3>3.4 Read before it runs</h3>
+      <p>macOS tags every downloaded app until it’s opened once. Teardown watches for apps that arrived but never ran and reads them first, so the decision to open one is made with the facts in front of you: where it came from, how it’s built and what it can ask for.</p>
+
+      <h3>3.5 A tool for agents too</h3>
+      <p>The engine is also an MCP server, so an assistant like Claude can ask which apps can record the screen or what changed in the last update. It can revoke a permission or roll an app back, but only after the person agrees.</p>
+
+      <h2 id="results"><span class="n">4</span>Results</h2>
+      <p>These are one machine’s numbers, read live on October 19, 2026, not estimates.</p>
+      <div class="table">
+        <table>
+          <thead><tr><th>Measure</th><th class="num">Count</th></tr></thead>
+          <tbody>
+            <tr><td>Installed apps read (macOS apps watched as well)</td><td class="num">74 (139)</td></tr>
+            <tr><td>Apps that are websites in a wrapper</td><td class="num">20</td></tr>
+            <tr><td>Separate copies of Chromium, and their size</td><td class="num">21, 8.4 GB</td></tr>
+            <tr><td>Permissions granted (microphone)</td><td class="num">108 (9)</td></tr>
+            <tr><td>Startup items (pointing at deleted programs)</td><td class="num">31 (6)</td></tr>
+            <tr><td>Space Clean up offers to free</td><td class="num">56 GB</td></tr>
+            <tr><td>Disk used to keep a rollback copy of an 8.8 GB app</td><td class="num">35 MB</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <figure>
+        <img src="/img/teardown-permissions.webp" width="1440" height="1000" alt="The Permissions page: which apps can record the screen, use the microphone and camera, each with a button to take it back">
+        <figcaption><b>Figure 4.</b> What was actually granted, read from macOS’s own permission records, with when each app was last active and a button to take it back.</figcaption>
+      </figure>
+
+      <h2 id="corrections"><span class="n">5</span>What I got wrong</h2>
+      <p>Running Teardown on a real Mac surfaced four wrong answers, and each changed the design rather than just the code.</p>
+      <ul>
+        <li><b>Unfair labels.</b> Chrome and Acrobat were first counted as “web pages in a wrapper.” They embed or are browsers, so they now get their own group.</li>
+        <li><b>False alarms.</b> After I taught the engine to read iPhone apps, five of them showed fake “updates,” because their earlier snapshots had been read as empty. Snapshots now record which engine version took them, and an improved engine re-baselines silently.</li>
+        <li><b>The wrong owner.</b> Microsoft Teams’ updater was credited to Visual Studio because both share a vendor prefix. An item is now credited to an app only when its name points at that app.</li>
+        <li><b>Lost trust.</b> Every rebuild gave the app a new fingerprint, so macOS dropped its Full Disk Access each time. Signing with a stable local certificate keeps Teardown’s identity across rebuilds.</li>
+      </ul>
+      <p>A tool that tells you what your apps are doing has to be right about small things, or it won’t be believed about big ones. The same instinct changed the unused-apps judgment: Spotlight had no record for most apps after a Mac migration, so Teardown reads when an app last wrote to its own data and says “last activity Teardown can find” rather than claiming certainty.</p>
+
+      <h2 id="limits"><span class="n">6</span>Limitations</h2>
+      <ul>
+        <li>It can’t block an app’s network traffic. That needs a network extension signed by Apple, and I’d rather say so than fake it.</li>
+        <li>Apps containing files only an administrator can read can’t be cloned, so they can’t be rolled back.</li>
+        <li>There is deliberately no signed download: Teardown is built from source you can read. That keeps trust simple and limits who can try it.</li>
+        <li>I built Teardown in a day with coding agents. The evidence table and the undo on every action are what I’d point to as the reason to trust it anyway.</li>
+      </ul>
+
+      <h2 id="next"><span class="n">7</span>What’s next</h2>
+      <p>Read disk images before they’re installed, not just apps after they land. Grow the agent tools beyond the first nine. And track changes across several Macs in a household, so one person can see what updated on everyone’s machines.</p>
+
+      <section class="refs" id="refs" aria-labelledby="refs-h">
+        <h2 id="refs-h"><span class="n"></span>References</h2>
+        <ol>
+          <li>Source, README and screenshots: <a href="https://github.com/AllStreets/teardown">github.com/AllStreets/teardown</a></li>
+          <li>Where the data comes from, with commands to reproduce each claim: <a href="https://github.com/AllStreets/teardown#where-the-data-comes-from">README section</a></li>
+          <li>The MCP server for AI agents: <a href="https://github.com/AllStreets/teardown#for-ai-agents">README section</a></li>
+        </ol>
+      </section>
+
+      <p class="next"><a href="/work/aegis/">Previous: Red-teaming Aegis</a><a href="/work/forge/">Next: The Forge review</a></p>
+    </article>
+  </main>
+</div>
+</body>
+</html>

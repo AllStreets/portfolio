@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Red-teaming Aegis: a case study</title>
+<meta name="description" content="Three rounds of attacking my own AI agent permission system, with the findings committed before the fixes and a plain account of what still isn't protected.">
+<link rel="canonical" href="https://connor-evans.vercel.app/work/aegis/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Connor Evans">
+<meta property="og:url" content="https://connor-evans.vercel.app/work/aegis/">
+<meta property="og:title" content="Red-teaming Aegis: a case study">
+<meta property="og:description" content="Attacking my own agent permission system, and publishing what it still doesn’t protect.">
+<meta property="og:image" content="https://connor-evans.vercel.app/img/og-aegis.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Red-teaming Aegis: a case study">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#F5F0E6">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23121212'/%3E%3Ctext x='16' y='21.5' font-family='Arial' font-size='14' font-weight='700' text-anchor='middle' fill='%23F7F7F4'%3ECE%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="name" href="/">Connor Evans</a>
+    <nav aria-label="Site"><a href="/#work">Work</a><a href="/#how">How I work</a><a href="https://github.com/AllStreets">GitHub</a></nav>
+  </header>
+
+  <main class="paper">
+    <nav class="toc" aria-label="Sections">
+      <span class="eyebrow">Case study</span>
+      <a href="#problem">1. The problem</a>
+      <a href="#method">2. Method</a>
+      <a href="#round1">3. Round 1</a>
+      <a href="#model">4. Threat model</a>
+      <a href="#round2">5. Round 2</a>
+      <a href="#round3">6. Round 3</a>
+      <a href="#open">7. What’s still open</a>
+      <a href="#lessons">8. What I learned</a>
+      <a href="#refs">References</a>
+    </nav>
+
+    <article>
+      <header>
+        <span class="eyebrow">Case study 3 of 5</span>
+        <h1>Red-teaming Aegis: attacking my own agent permission system</h1>
+        <p class="byline">Connor Evans · Round 1 September 15, 2026 · Round 2 October 19, 2026 · Round 3 October 20, 2026 · <a href="https://github.com/AllStreets/ONEXUS/blob/main/docs/REDTEAM-AEGIS.md">full report</a></p>
+        <div class="abstract">
+          <b>Abstract</b>
+          <p>ONEXUS is a local-first runtime for AI agents. Its arbiter, Aegis, checks every tool call an agent makes against the capabilities the agent declared, and writes each decision to a ledger called Chronicle. It had more than 1,300 tests, all of which checked that it did what it intended. I ran the opposite review: given what the product promises, which guarantees hold when someone is trying to get around them? Round 1 attacked the arbiter’s decisions and found that revoking an agent didn’t stop it. Round 2 attacked the boundary around the arbiter and found that launched agents could read the operator’s secrets and that the ledger could be edited without detection. Round 3 attacked what an agent can do on its own, outside every call it makes to ONEXUS, and found it could read the operator’s files, open its own sockets and write anywhere; agents can now run in a locked-down container behind an egress proxy. In every round the findings were committed before the fixes, so the history proves each gap was real. One finding is left open on purpose, and the report says exactly what the system still doesn’t protect.</p>
+        </div>
+      </header>
+
+      <figure>
+        <img src="/img/aegis-boundary.svg" width="960" height="540" alt="Diagram: an agent's tool calls pass through Aegis to Chronicle. Round 2 limited the agent's environment and chained the ledger. Files and sockets the agent can reach directly are marked as round 3.">
+        <figcaption><b>Figure 1.</b> Where Aegis stands after three rounds. It governs the calls an agent routes through ONEXUS, and an agent whose adapter declares a container can no longer reach the operator’s files or any host it didn’t declare.</figcaption>
+      </figure>
+
+      <h2 id="problem"><span class="n">1</span>The problem</h2>
+      <p>Most of my work asks one question: how does an AI agent earn permission to act, and how do you stop one that shouldn’t? ONEXUS answers it with a manifest. An agent declares what it needs (file paths, outbound domains, tools) before it runs, and Aegis allows, prompts or denies every call against that declaration. Trust is earned: an agent’s score rises with good outcomes and falls with bad ones, and the score decides how much it can do without asking.</p>
+      <p>A permission system is worth exactly what its worst case is worth. Testing that it works is the easy half. The half that matters is trying to get around it, and writing down what happened either way.</p>
+
+      <h2 id="method"><span class="n">2</span>Method</h2>
+      <p>Each attack is a test named for the claim it tests. The findings land first in their own commit, asserting the broken behavior, so the suite passes against the code as it shipped and the gap is on record. The fix lands next and flips each finding into a regression test. An attack that fails against the code is recorded too, because a review that lists only wins says nothing about how hard anyone tried.</p>
+
+      <h2 id="round1"><span class="n">3</span>Round 1: the arbiter</h2>
+      <div class="table">
+        <table>
+          <thead><tr><th></th><th>Finding</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>F1</td><td>Revoking an agent didn’t stop it. Revoke set trust to zero but left explicit grants in place, and the arbiter checks grants before it reads trust. A revoked agent kept working.</td><td>Fixed</td></tr>
+            <tr><td>F2</td><td>Trust collapse only fired when an operator lowered the score, not when an agent’s own failures did. Two agents with the same score had opposite containment.</td><td>Fixed</td></tr>
+            <tr><td>F3</td><td>Autonomy is bought with volume. Seven trivial successes from a cold start reach the tier where capabilities auto-grant, and nothing weighs an outcome by what was at stake.</td><td>Open on purpose</td></tr>
+            <tr><td>F4</td><td>The ledger recorded a containment that didn’t happen. After F1, Chronicle showed a clean revoke while the grant was still live.</td><td>Fixed</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>F1, F2 and F4 were one bug wearing different clothes: the safety property was attached to a function instead of to the state it protects. The fix moved the grant cleanup behind one helper that every path lowering trust calls, so a score is a score no matter who moved it.</p>
+      <p>Six attacks held, and they’re why the findings were narrow rather than structural: privileged capabilities never auto-grant, undeclared capabilities are denied even at full trust, unregistered agents are denied, grants don’t cross workspaces, and both <code>../</code> traversal and symlink escapes are refused because paths are resolved before they’re compared.</p>
+      <p>F3 is left open because fixing it properly means risk-weighting outcomes, which is a design decision, not a patch. The report sets out three options, from rate-limiting the climb to requiring a human on the path to the autonomous tier.</p>
+
+      <h2 id="model"><span class="n">4</span>Saying what isn’t protected</h2>
+      <p>Round 1 attacked the arbiter, and the arbiter held. But the report never said where the arbiter stops, and a safety engineer would find the gap in minutes: third-party agents are launched as ordinary child processes, so anything they do outside their calls to ONEXUS never reaches Aegis. So before round 2, I added a threat model and non-goals section that names five gaps with file references, rewrote the README’s claims to match (“governs the calls agents route through ONEXUS” rather than “runs untrusted agents”), and listed the steps that would close them in order.</p>
+
+      <h2 id="round2"><span class="n">5</span>Round 2: the boundary</h2>
+      <p>Round 2 took the two gaps that could be closed properly in code and attacked them with real child processes, each reading back what it could see.</p>
+      <div class="table">
+        <table>
+          <thead><tr><th></th><th>Attack</th><th>Before</th><th>After</th></tr></thead>
+          <tbody>
+            <tr><td>R2-1</td><td>A catalog agent reads a secret from the operator’s environment that it never declared</td><td>Read it</td><td>Sees nothing</td></tr>
+            <tr><td>R2-2</td><td>An agent that declared no keys reads the Anthropic API key</td><td>ONEXUS handed it over</td><td>Only agents that declare it</td></tr>
+            <tr><td>R2-3</td><td>An MCP agent with no declared keys reads the same secret</td><td>Read it</td><td>Sees nothing</td></tr>
+            <tr><td>R2-4</td><td>Rewrite a deny to an allow directly in the ledger file</td><td>Nothing noticed</td><td>Verification names the row</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The first three share one fix: a single function builds every launched agent’s environment from a small baseline (paths, home, temp, locale, no credentials), plus the variables its manifest declares, plus a provider key only when it declares that variable. Tests also check the other direction: a declared variable and a declared key still arrive, and the baseline still lets an agent find its programs.</p>
+      <p>The fourth chains every new ledger row to the one before it with SHA-256. Verification walks the chain and names the first row that doesn’t follow, which catches an edited, deleted or reordered row. Rows written before the change count as legacy, not tampering, so existing ledgers keep working. Two attacks it can’t catch on its own are truncating the newest rows and recomputing the whole chain; for those, the latest chain value can be recorded somewhere the agent can’t write.</p>
+      <p>All 1,376 tests passed after round 2, including 23 red-team tests across the first two rounds.</p>
+
+      <h2 id="round3"><span class="n">6</span>Round 3: what an agent does on its own</h2>
+      <p>The threat model named one gap above all the others, and round 3 went after it. A catalog agent ran as an ordinary child process of the operator, so anything it did without asking ONEXUS never reached Aegis. Three attacks with real child processes proved it, committed first as findings:</p>
+      <div class="table"><table>
+        <thead><tr><th>Attack</th><th>Unconfined</th><th>Confined</th></tr></thead>
+        <tbody>
+          <tr><td><b>R3-1</b> Read a key file in the operator’s home it never declared</td><td>Read it</td><td>Sees none of the operator’s files</td></tr>
+          <tr><td><b>R3-2</b> Open a TCP connection to a host it never declared</td><td>Connected</td><td>No network, or only declared hosts through the proxy</td></tr>
+          <tr><td><b>R3-3</b> Write a file outside its working directory</td><td>Wrote it</td><td>Read-only root; only its own scratch space</td></tr>
+        </tbody>
+      </table></div>
+      <p>The fix lets an adapter declare a container. That agent runs with a read-only root, none of the operator’s files, every capability dropped, a non-root user and resource limits. With no hosts declared it has no network at all. With hosts declared, its only way out is an egress proxy on a private network that tunnels to exactly those hosts, refuses everything else, and logs each decision. The tests run the same attacks inside real containers against a real listener: the declared host is reached through the proxy, an undeclared one gets a 403, and the declared host can’t be reached around the proxy. Every launch now says in the ledger whether it was confined, and one setting refuses to run anything that isn’t.</p>
+      <p>All 1,386 tests pass after round 3, 33 of them red-team tests.</p>
+
+      <h2 id="open"><span class="n">7</span>What’s still open</h2>
+      <ul>
+        <li>Only two of the catalog’s 21 hand-written adapters run confined so far: Haystack search and faster-whisper transcription, each with its own image and no network. Building them showed that the other 19 couldn’t run at all, because the server they pointed at had never been written. They’re now marked as planned, the catalog no longer calls them runnable, and ONEXUS refuses to launch them.</li>
+        <li>Agents started from an MCP manifest still run as child processes, with round 2’s environment limits but not round 3’s container.</li>
+        <li>The container uses Docker’s default runtime, not gVisor, and the proxy decides by host name, not by what is sent.</li>
+        <li>F3, the trust ladder that rewards volume over judgment, remains a deliberate design question.</li>
+      </ul>
+
+      <h2 id="lessons"><span class="n">8</span>What I learned</h2>
+      <p>The most useful finding in round 1 wasn’t a bug. It was the shape of the bug: a safety property implemented in one code path is a property of that code path, not of the system. In round 2, the lesson was about claims. The code was honest about its limits in comments, while the README promised more. Writing the threat model first, and making the README say only what the tests prove, was worth more than any single fix. Round 3’s lesson was about coverage: the mechanism took a day, and making every agent use it is the real remaining work, so the report says how many do (two so far) instead of implying all of them.</p>
+      <p>As with my other work, I built ONEXUS with coding agents. The parts of this study I’d point to as mine are the method (findings before fixes, failed attacks recorded), the decision to leave F3 open rather than patch it, and the choice to publish what isn’t protected.</p>
+
+      <section class="refs" id="refs" aria-labelledby="refs-h">
+        <h2 id="refs-h">References</h2>
+        <ol>
+          <li>The full red-team report: <a href="https://github.com/AllStreets/ONEXUS/blob/main/docs/REDTEAM-AEGIS.md">docs/REDTEAM-AEGIS.md</a></li>
+          <li>Round 1 findings then fix: <a href="https://github.com/AllStreets/ONEXUS/commit/f97d093">f97d093</a>, <a href="https://github.com/AllStreets/ONEXUS/commit/7ab6634">7ab6634</a></li>
+          <li>Threat model: <a href="https://github.com/AllStreets/ONEXUS/commit/5fd30af">5fd30af</a></li>
+          <li>Round 2 findings then fix: <a href="https://github.com/AllStreets/ONEXUS/commit/f2059f9">f2059f9</a>, <a href="https://github.com/AllStreets/ONEXUS/commit/ef84884">ef84884</a></li>
+          <li>Round 3 findings then fix: <a href="https://github.com/AllStreets/ONEXUS/commit/aa9f133">aa9f133</a>, <a href="https://github.com/AllStreets/ONEXUS/commit/bb778e4">bb778e4</a>; <code>nexus/agents/confine.py</code> and <code>nexus/agents/egress_proxy.py</code></li>
+          <li>The attacks: <code>tests/redteam/test_aegis_redteam.py</code>, <code>test_aegis_redteam_round2.py</code> and <code>test_aegis_redteam_round3.py</code></li>
+        </ol>
+      </section>
+
+      <p class="next"><a href="/work/chicago-open-world/">Previous: Chicago Open World</a><a href="/work/teardown/">Next: Teardown</a></p>
+    </article>
+  </main>
+</div>
+</body>
+</html>

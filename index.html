@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Connor Evans, design engineer</title>
+<meta name="description" content="Connor Evans designs and builds interfaces for AI, from the pixels down to the permissions. A flight around the real Earth, lit by the real sun, to each project where it belongs.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Connor Evans, design engineer">
+<meta property="og:description" content="Interfaces for AI, from the pixels down to the permissions. Fly to each project on the real Earth.">
+<meta property="og:image" content="/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#030406">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600&family=Spectral:ital,wght@1,300;1,400&display=swap">
+<link rel="preload" href="/earth/day-4k.webp" as="image" type="image/webp" crossorigin>
+</head>
+<body>
+<a class="skip" href="#index">Skip to the list of work</a>
+
+<canvas id="globe" aria-hidden="true"></canvas>
+<div class="vignette" aria-hidden="true"></div>
+
+<header class="bar">
+  <a class="who" href="#top" data-go="0">Connor Evans</a>
+  <nav aria-label="Site">
+    <a href="#index">All work</a>
+    <a href="https://github.com/AllStreets">GitHub</a>
+    <a href="mailto:connorevans29@gmail.com">Email</a>
+  </nav>
+</header>
+
+<main id="top">
+  <div id="stage"></div>
+  <div id="track" aria-hidden="true"></div>
+
+  <nav class="legs" aria-label="Places" id="legs"></nav>
+
+  <div class="sun" id="sun">
+    <label for="sun-range"><span id="sun-label">Sun as of now</span></label>
+    <input id="sun-range" type="range" min="-720" max="720" step="5" value="0" aria-describedby="sun-hint">
+    <button type="button" id="sun-reset" hidden>Back to now</button>
+    <span id="sun-hint" class="visually-hidden">Moves the sun up to twelve hours either way, so you can watch day and night cross the globe.</span>
+  </div>
+
+  <section id="index" class="index" aria-labelledby="index-h">
+    <div class="index-in">
+      <h2 id="index-h">All of it, with links</h2>
+      <p class="index-lede">Everything below is public. Live sites open the running thing; code goes to the repository on GitHub.</p>
+      <ol class="ledger" id="ledger"></ol>
+
+      <div class="contact">
+        <h2>Write to me</h2>
+        <p>I am looking for a design engineering role at a company building AI. If you are hiring, or just want to talk about interfaces for software that acts on your behalf, email me.</p>
+        <p class="contact-links">
+          <a href="mailto:connorevans29@gmail.com">connorevans29@gmail.com</a>
+          <a href="https://github.com/AllStreets">github.com/AllStreets</a>
+        </p>
+      </div>
+
+      <footer class="credits">
+        <h2>Where the Earth came from</h2>
+        <p>The globe is NASA Blue Marble by day and NASA Black Marble 2016 by night, with NASA Visible Earth clouds and GEBCO relief. Up close, Chicago is USGS NAIP aerial photography, its streetlights are every OpenStreetMap road within ten kilometres of the Loop (ODbL), and its 72,000 buildings come from the City of Chicago data portal, OpenStreetMap and Wikipedia’s list of tallest buildings. Melbourne is Sentinel-2 cloudless by EOX IT Services (CC BY 4.0, contains modified Copernicus Sentinel data 2016); Hong Kong and England use NASA’s 500 m Blue Marble and Black Marble tiles from GIBS. Albert Park is traced from bacinger/f1-circuits (MIT). The 9,096 stars are the Yale Bright Star Catalogue, turned to where they stand tonight, and the sun is placed with NOAA’s solar position equations.</p>
+        <p>Built by hand with Three.js and a few hundred lines of GLSL. No trackers. <a href="https://github.com/AllStreets/portfolio">Source on GitHub</a>.</p>
+      </footer>
+    </div>
+  </section>
+</main>
+
+<noscript><p class="noscript">This site flies a 3D globe and needs JavaScript. The full list of work is at <a href="https://github.com/AllStreets">github.com/AllStreets</a>.</p></noscript>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

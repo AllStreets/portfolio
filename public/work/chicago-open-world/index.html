@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chicago Open World: a case study</title>
+<meta name="description" content="How I built a 3D Chicago of 100,000 buildings that runs in a browser tab: one shader, streaming by distance, and a first visit that teaches by doing.">
+<link rel="canonical" href="https://connor-evans.vercel.app/work/chicago-open-world/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Connor Evans">
+<meta property="og:url" content="https://connor-evans.vercel.app/work/chicago-open-world/">
+<meta property="og:title" content="Chicago Open World: a case study">
+<meta property="og:description" content="A city of 100,000 buildings at true height, in a browser tab.">
+<meta property="og:image" content="https://connor-evans.vercel.app/img/og-chicago.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Chicago Open World: a case study">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#F5F0E6">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23121212'/%3E%3Ctext x='16' y='21.5' font-family='Arial' font-size='14' font-weight='700' text-anchor='middle' fill='%23F7F7F4'%3ECE%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="name" href="/">Connor Evans</a>
+    <nav aria-label="Site"><a href="/#work">Work</a><a href="/#how">How I work</a><a href="https://github.com/AllStreets">GitHub</a></nav>
+  </header>
+
+  <main class="paper">
+    <nav class="toc" aria-label="Sections">
+      <span class="eyebrow">Case study</span>
+      <a href="#problem">1. The problem</a>
+      <a href="#shader">2. One shader</a>
+      <a href="#streaming">3. Streaming</a>
+      <a href="#first">4. The first ten seconds</a>
+      <a href="#measure">5. Measuring load</a>
+      <a href="#limits">6. Limitations</a>
+      <a href="#next">7. What’s next</a>
+      <a href="#refs">References</a>
+    </nav>
+
+    <article>
+      <header>
+        <span class="eyebrow">Case study 2 of 5</span>
+        <h1>Chicago Open World: a city of 100,000 buildings in a browser tab</h1>
+        <p class="byline">Connor Evans · 2026 · <a href="https://chicago-open-world.vercel.app">chicago-open-world.vercel.app</a></p>
+        <div class="abstract">
+          <b>Abstract</b>
+          <p>Chicago Open World is the city in 3D, built from City of Chicago and OpenStreetMap data, with every building at its true height and the river and lake at their real levels. Two constraints shaped it: it has to run in a browser on an ordinary laptop, and it has to feel like a place rather than a data visualization. This study covers the three decisions that made that possible: drawing every building with one shared shader, streaming the city in three levels of detail, and redesigning the first visit so the city is the first thing you see. It ends with measurements that showed me the bottleneck wasn’t where I assumed.</p>
+        </div>
+      </header>
+
+      <figure>
+        <img src="/img/cow-dusk.webp" width="1440" height="900" alt="Dusk over the Loop and the lakefront, windows coming on">
+        <figcaption><b>Figure 1.</b> Dusk over the Loop. Real footprints at real heights, generated façades, and windows lighting up floor by floor as the real Chicago sun goes down.</figcaption>
+      </figure>
+
+      <h2 id="problem"><span class="n">1</span>The problem</h2>
+      <p>Every map of Chicago is flat. I wanted a city you could stand inside: the river 6.3 m below Wacker Drive where it really is, Lake Michigan at its real level, the double-decker streets under the Loop, and a skyline you could check against the real one. The world is projected in metres around State and Madison, the zero point of Chicago’s address grid, so the interface always knows which corner you’re over.</p>
+      <p>The hard constraint was the browser. The covered area is about 110 km² with more than 100,000 buildings, and it had to hold a smooth frame rate on a laptop. That set a budget I designed against throughout: no more than 900 draw calls.</p>
+
+      <h2 id="shader"><span class="n">2</span>One shader for every building</h2>
+      <p>The direct approach, a material per building or even per architectural style, would have meant tens of thousands of draw calls. Instead, every building in the city shares one material, and each building’s identity travels in its geometry as three per-vertex attributes: which façade texture it uses, a random seed that makes it unique, and its style.</p>
+      <h3>2.1 Patching the built-in material, not replacing it</h3>
+      <p>I could have written a custom shader from scratch. I chose to patch Three.js’s standard physical material through <code>onBeforeCompile</code> instead, inserting code at specific points in its shader. That keeps everything Three.js already does well (physically based lighting, shadows, fog, tone mapping, sky reflections) and adds only what a city needs. Each insertion goes through a check that throws if the expected point in the shader is missing, so a library upgrade that moves something fails the build loudly instead of quietly drawing the city wrong.</p>
+      <h3>2.2 A texture array, not an atlas</h3>
+      <p>Eight Chicago façade families live in one <code>sampler2DArray</code>. A single combined image (an atlas) would also be one texture binding, but at a distance the GPU samples smaller versions of it, and neighbouring textures bleed into each other at their edges. Each layer of an array has its own set of smaller versions, so a limestone tower never picks up the edge of a brick texture.</p>
+      <h3>2.3 Windows that light by floor</h3>
+      <p>At night, each window cell hashes its own position, but part of that hash is shared by the whole floor, so offices light up a floor at a time the way real ones do. Each building’s seed sets how busy it is, so no two towers light the same, and homes like three-flats light more sparsely and warmer. A soft border inside each cell keeps the frames dark, which is what makes an all-glass tower read as glass instead of a lit block.</p>
+      <p>Night, snow on the roofs, the fireworks’ flashes on the towers facing them, and Buckingham Fountain’s show lights are all uniforms of that one shader, so changing the whole skyline costs one update.</p>
+
+      <figure>
+        <img src="/img/cow-night.webp" width="1440" height="900" alt="The same view at night: office floors lit as whole floors, homes sparser and warmer">
+        <figcaption><b>Figure 2.</b> The same view at night. Offices light a floor at a time, and each tower’s seed sets how busy it is.</figcaption>
+      </figure>
+
+      <h2 id="streaming"><span class="n">3</span>Streaming by distance</h2>
+      <p>The city is cut into 500 m tiles. Near the camera, tiles load in full detail; the rest of each 2 km block those tiles sit in loads in a simpler version; every other block in range is drawn as one whole 2 km block. Tiles decode six at a time, nearest first, so the city fills in outward from where you are.</p>
+      <p>The detail I care most about is that nothing blinks. When the camera moves and a tile’s level of detail changes, the swap runs inside a React transition, which keeps the old tile on screen until the new one has loaded. Without that, every move would flash holes in the skyline.</p>
+
+      <h2 id="first"><span class="n">4</span>Redesigning the first ten seconds</h2>
+      <p>For most of the project, a first visit opened a sheet listing every control: about sixty of them, in four columns, covering the city. It was complete and it was a wall. The best thing the project has, the city itself, was hidden behind its own manual.</p>
+
+      <div class="pair">
+        <figure>
+          <img src="/img/cow-before-controls-sheet.webp" width="1600" height="1000" alt="Before: the first visit opened a sheet of about sixty controls over the city">
+          <figcaption><b>Figure 3a.</b> Before. The first visit opened the full controls sheet.</figcaption>
+        </figure>
+        <figure>
+          <img src="/img/cow-v8-first-flight-night.webp" width="1600" height="1000" alt="After: the city at night with a small first-flight card at the bottom">
+          <figcaption><b>Figure 3b.</b> After. The city comes first, with a three-step card at the bottom.</figcaption>
+        </figure>
+      </div>
+
+      <p>Now the city is the first thing you see, and a small card teaches three things by having you do them: drag to look around, press W, A, S or D to fly, and press ⌘K to go somewhere. Each step completes only when you actually do it, not when you read it. The full sheet is still one key away on <code>?</code>.</p>
+      <p>Two details mattered more than I expected. The world’s “ready” signal briefly reads true at startup, before any file has been counted, so the card has to wait for real tiles and for the loading screen to finish fading, or it appears underneath the loading screen. Touch screens got their own version: drag one finger to look, two fingers to zoom and move, then double-tap to fly, which phones need because they don’t send a double-click. On a portrait phone the card sits in the sky, clear of the minimap. All of it is covered by tests.</p>
+
+      <h2 id="measure"><span class="n">5</span>Measuring load, and being wrong about why it was slow</h2>
+      <p>The app shipped as one 2.49 MB script, and I assumed that was why the first visit felt slow. I split the libraries (React, Three.js and React Three Fiber) into separately cached chunks, which means a returning visitor now downloads about 211 KB gzipped after an app-only deploy instead of 816 KB. Then I measured, and the first visit didn’t get faster.</p>
+      <p>The measurement explained why. I wrote a script that loads the built app in a fresh browser on a throttled 20 Mbps connection and records what crosses the network before the city is ready.</p>
+      <div class="table">
+        <table>
+          <thead><tr><th>Loading screen waits for</th><th class="num">JavaScript</th><th class="num">Everything before ready</th><th class="num">City ready</th></tr></thead>
+          <tbody>
+            <tr><td>Tiles within 3 km (today)</td><td class="num">791 KB</td><td class="num">42.7 MB</td><td class="num">39.0 s</td></tr>
+            <tr><td>Tiles within 1.5 km (tested)</td><td class="num">791 KB</td><td class="num">31.0 MB</td><td class="num">31.9 s</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The JavaScript is about 0.3 seconds of that. The cost is the world data the loading screen waits for, and the time to decode and draw it. The test browser draws on the CPU, so a real laptop is far faster than these absolute numbers, but the comparison holds: the lever is how much of the city has to arrive before the curtain lifts, which is a design question about what the first view needs, not a bundling one.</p>
+
+      <h2 id="limits"><span class="n">6</span>Limitations</h2>
+      <ul>
+        <li>The windows are generated by formula, not from real occupancy. A building’s busyness is a function of its seed, not of whether it’s really offices or homes.</li>
+        <li>Without WebGL2 the app now shows a still of the city and says what’s needed, but there is no video fly-through for those browsers yet.</li>
+        <li>Live CTA train positions are simulated on typical schedules, and the interface says so.</li>
+        <li>I built this with coding agents over many passes. The decisions above, and the measurement that corrected my own assumption, are the parts I’d point to as mine.</li>
+      </ul>
+
+      <h2 id="next"><span class="n">7</span>What’s next</h2>
+      <p>Drive the window busyness from city records of building use. Decide the loading radius by what the first view actually shows, then stream the rest during the opening flight. Watch new people use it on a phone, and add a short video for browsers that can’t run the 3D.</p>
+
+      <section class="refs" id="refs" aria-labelledby="refs-h">
+        <h2 id="refs-h">References</h2>
+        <ol>
+          <li>Live: <a href="https://chicago-open-world.vercel.app">chicago-open-world.vercel.app</a></li>
+          <li>Source: <a href="https://github.com/AllStreets/Chicago-Open-World">github.com/AllStreets/Chicago-Open-World</a>; the shader is <code>app/src/world/materials/facadeMaterial.js</code> and streaming is <code>app/src/world/TileStreamer.jsx</code></li>
+          <li>The load measurement script: <code>app/e2e/loadtime.mjs</code></li>
+          <li>The full illustrated tour: <a href="https://github.com/AllStreets/Chicago-Open-World/blob/main/docs/TOUR.md">docs/TOUR.md</a></li>
+          <li>Data: City of Chicago Data Portal; © OpenStreetMap contributors, ODbL; Cook County 2017 LiDAR</li>
+        </ol>
+      </section>
+
+      <p class="next"><a href="/work/crucible/">Previous: Crucible</a><a href="/work/aegis/">Next: Red-teaming Aegis</a></p>
+    </article>
+  </main>
+</div>
+</body>
+</html>

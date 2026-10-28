@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" role="img" aria-labelledby="t d">
+  <title id="t">Where Aegis stands</title>
+  <desc id="d">Round 3 confines declared agents in a container behind an egress proxy. An agent process sends tool calls through ONEXUS to Aegis, which allows, prompts or denies each one and writes it to Chronicle, now hash-chained. Round 2 limited the agent's environment to what it declares. A dashed path shows what the agent can still do directly, reading files and opening sockets, which round 3 addresses with containers and an egress proxy.</desc>
+  <style>
+    .box { fill: #FFFDF8; stroke: #1C1A16; stroke-width: 1.5; }
+    .soft { fill: #F1EBDF; stroke: #DDD4C3; stroke-width: 1.5; }
+    .t { font: 600 17px "Schibsted Grotesk", Arial, sans-serif; fill: #121212; }
+    .s { font: 400 13.5px "Schibsted Grotesk", Arial, sans-serif; fill: #4B4B48; }
+    .m { font: 500 11.5px "IBM Plex Mono", Menlo, monospace; fill: #6A6964; letter-spacing: 0.06em; }
+    .a { stroke: #121212; stroke-width: 1.5; fill: none; marker-end: url(#arr); }
+    .gap { stroke: #B23A30; stroke-width: 1.5; fill: none; stroke-dasharray: 6 5; marker-end: url(#arr-r); }
+    .fix { fill: #2340C8; }
+    .fixt { font: 600 12.5px "Schibsted Grotesk", Arial, sans-serif; fill: #FFFFFF; }
+  </style>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#121212"/></marker>
+    <marker id="arr-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#B23A30"/></marker>
+  </defs>
+  <rect width="960" height="540" fill="#FBF8F2"/>
+
+  <!-- the agent -->
+  <rect class="box" x="40" y="170" width="230" height="150" rx="6"/>
+  <text class="m" x="60" y="200">CATALOG AGENT</text>
+  <text class="t" x="60" y="230">A child process</text>
+  <text class="s" x="60" y="256">runs as you, launched by</text>
+  <text class="s" x="60" y="276">AgentLauncher or MCPAgent</text>
+  <rect class="fix" x="60" y="290" width="190" height="22" rx="3"/>
+  <text class="fixt" x="70" y="305">Round 2: declared env only</text>
+
+  <!-- aegis -->
+  <rect class="box" x="370" y="170" width="230" height="150" rx="6"/>
+  <text class="m" x="390" y="200">ONEXUS KERNEL</text>
+  <text class="t" x="390" y="230">Aegis</text>
+  <text class="s" x="390" y="256">checks each call against the</text>
+  <text class="s" x="390" y="276">manifest: allow, prompt, deny</text>
+  <text class="s" x="390" y="300">Round 1: decision logic held</text>
+
+  <!-- chronicle -->
+  <rect class="box" x="690" y="170" width="230" height="150" rx="6"/>
+  <text class="m" x="710" y="200">LEDGER</text>
+  <text class="t" x="710" y="230">Chronicle</text>
+  <text class="s" x="710" y="256">every decision, appended</text>
+  <text class="s" x="710" y="276">to a SQLite file</text>
+  <rect class="fix" x="710" y="290" width="190" height="22" rx="3"/>
+  <text class="fixt" x="720" y="305">Round 2: hash-chained</text>
+
+  <path class="a" d="M270,245 L362,245"/>
+  <text class="m" x="276" y="234">TOOL CALL</text>
+  <path class="a" d="M600,245 L682,245"/>
+  <text class="m" x="608" y="234">DECISION</text>
+
+  <!-- the gap -->
+  <rect class="soft" x="40" y="400" width="560" height="96" rx="6"/>
+  <text class="m" x="60" y="428">ROUND 3: CONFINED WHEN DECLARED</text>
+  <text class="t" x="60" y="456">A container that sees none of your files</text>
+  <text class="s" x="60" y="480">No network, or only declared hosts through an egress proxy</text>
+  <path class="a" d="M155,320 L155,392"/>
+
+  <text class="m" x="40" y="80">WHERE AEGIS STANDS, OCTOBER 2026</text>
+  <text class="t" x="40" y="112" style="font-size:22px">Aegis governs the calls an agent routes through ONEXUS.</text>
+  <text class="s" x="40" y="138" style="font-size:15px">Round 1 attacked the arbiter, round 2 its boundary, round 3 what an agent does on its own.</text>
+</svg>

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crucible: a case study</title>
+<meta name="description" content="How I designed Crucible, an instrument that runs real open-source AI agents against each other and publishes only what it can count.">
+<link rel="canonical" href="https://connor-evans.vercel.app/work/crucible/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Connor Evans">
+<meta property="og:url" content="https://connor-evans.vercel.app/work/crucible/">
+<meta property="og:title" content="Crucible: a case study">
+<meta property="og:description" content="Measuring what AI agents do when they share a machine, where every number is a row you can open.">
+<meta property="og:image" content="https://connor-evans.vercel.app/img/og-crucible.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Crucible: a case study">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#F5F0E6">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23121212'/%3E%3Ctext x='16' y='21.5' font-family='Arial' font-size='14' font-weight='700' text-anchor='middle' fill='%23F7F7F4'%3ECE%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="name" href="/">Connor Evans</a>
+    <nav aria-label="Site"><a href="/#work">Work</a><a href="/#how">How I work</a><a href="https://github.com/AllStreets">GitHub</a></nav>
+  </header>
+
+  <main class="paper">
+    <nav class="toc" aria-label="Sections">
+      <span class="eyebrow">Case study</span>
+      <a href="#problem">1. The problem</a>
+      <a href="#approach">2. The approach</a>
+      <a href="#decisions">3. Design decisions</a>
+      <a href="#results">4. Results</a>
+      <a href="#corrections">5. Corrections</a>
+      <a href="#limits">6. Limitations</a>
+      <a href="#next">7. What’s next</a>
+      <a href="#refs">References</a>
+    </nav>
+
+    <article>
+      <header>
+        <span class="eyebrow">Case study 1 of 5</span>
+        <h1>Crucible: measuring what AI agents do when they share a machine</h1>
+        <p class="byline">Connor Evans · Built September 26 to 28, 2026 · Record of September 28 · <a href="https://crucible-weld.vercel.app">crucible-weld.vercel.app</a></p>
+        <div class="abstract">
+          <b>Abstract</b>
+          <p>People now run several AI agents on one computer, sharing files, credentials and tools, but there was no public evidence of what those agents do to each other. I built Crucible, an instrument that clones real open-source agents at pinned commits, builds each into a container, and runs every pair against four adversarial scenarios. Every result is decided by a side effect the code can check, and every number on the site is a count of rows a reader can open. Across 520 pair runs, eight attacks were confirmed, all of one kind: an agent running a command another agent planted in a file. Two agents fell for it and six never did. The design problem was making a record that a skeptical reader could trust without trusting me, and most of this study is about the decisions that served that goal.</p>
+        </div>
+      </header>
+
+      <figure>
+        <img src="/img/crucible-front.webp" width="1440" height="900" alt="Crucible's front page: the headline beside the record's four main counts">
+        <figcaption><b>Figure 1.</b> The front page. The four figures (22 of 27 agents start, 8 invocable, 284 verdicts, 8 confirmed attacks) are each a count of rows in the published dataset.</figcaption>
+      </figure>
+
+      <h2 id="problem"><span class="n">1</span>The problem</h2>
+      <p>You install a coding agent, then a notes agent, then something for your calendar. They end up sharing your filesystem, your clipboard, your OAuth scopes and your model provider keys. There are plenty of threat models about what happens next. I couldn’t find a dataset.</p>
+      <p>My earlier project, SMADP, estimated those risks from each agent’s documentation. Estimates are cheap and they scale, but a reader can’t check one, and I didn’t trust them myself. So the question for Crucible was narrower and harder: what do real agents actually do to each other, measured in a way a skeptic could verify?</p>
+      <p>That turned the design problem into one of trust. The reader is a safety engineer or a researcher who assumes the numbers are inflated until shown otherwise. Every decision below is about removing a reason for that reader to doubt the page.</p>
+
+      <h2 id="approach"><span class="n">2</span>The approach</h2>
+      <p>Crucible is a pipeline with one rule at every stage: a failure is a row, never a silent drop.</p>
+      <ol>
+        <li><b>Harvest</b> resolves each agent’s repository to a commit SHA.</li>
+        <li><b>Forge</b> builds a container. The build recipe is itself recorded on every row, because changing it would otherwise silently change every figure.</li>
+        <li><b>Environment check</b> starts the image with the network denied.</li>
+        <li><b>Solo gate</b> asks each agent to do one small task alone through a hand-written entrypoint.</li>
+        <li><b>Arena</b> runs every invocable agent against every other, in both directions, under four scenarios.</li>
+        <li><b>Classify and audit</b> decide each run from its transcript, then a second, separately written check reads every verdict again.</li>
+        <li><b>Press and publish</b> generate the papers and export the store as static JSON for the site.</li>
+      </ol>
+      <p>Each scenario plants something and watches for a side effect. In induced execution, the attacker writes a file containing a command, and the attack is confirmed only if the victim creates the marker file that command would create. A model never decides whether an attack worked.</p>
+
+      <h2 id="decisions"><span class="n">3</span>Design decisions</h2>
+
+      <h3>3.1 An editorial record, not a dashboard</h3>
+      <p>The obvious form for this data was a dashboard: live tiles, sparklines, a dark operations screen. I’d built several of those, and I rejected it here. A dashboard asks you to watch. This data asks you to read and check. So the site is set like a journal: a serif display face (Instrument Serif), a quiet sans for reading, a monospace for anything that is a value, numbered figures with captions, and one accent color reserved for the thing that matters most, a confirmed attack.</p>
+      <p>The trade-off is that the page is slower to scan than a dashboard. I accepted that, because the reader I designed for doesn’t scan. They open a number and follow it down to the run.</p>
+
+      <h3>3.2 Every figure is a count of rows</h3>
+      <p>The report function takes no parameter that lets a figure be asserted. The store has no update method, and a test checks that it doesn’t. Corrections are new rows plus a <code>supersedes</code> row, and both stay readable. The site’s manifest pins each published dataset to an engine commit and a SHA-256 of the data. Together, these mean a number on the page can only exist if the rows behind it exist.</p>
+
+      <figure>
+        <img src="/img/crucible-trace.webp" width="900" height="280" alt="Figure 1 from the site: one tick per run, in four scenario lanes">
+        <figcaption><b>Figure 2.</b> Every run in order, one tick each, colored by what it established. The legend separates a verdict from an instrument artifact, which is a run the code couldn’t attribute and which never reaches a figure.</figcaption>
+      </figure>
+
+      <h3>3.3 Deterministic criteria over a model judge</h3>
+      <p>Grading runs with a model would have been faster to build and would have produced more verdicts. It would also have made every result depend on another model’s judgment, which is the thing a skeptic can’t check. I chose side-effect criteria: a file that exists or doesn’t, a canary string that appears or doesn’t. The cost is that some runs end as artifacts rather than verdicts (232 of 520), and the page reports that number rather than hiding it.</p>
+
+      <h3>3.4 Separate the harness from the agent</h3>
+      <p>When a build fails, it is tempting to blame the agent. Often the real cause is my harness: a language the recipe doesn’t support, a Python version floor, a full disk. Those failures get their own classes and are kept out of the agent’s column, so the attrition figure describes the agents rather than my tooling.</p>
+
+      <figure>
+        <img src="/img/crucible-attrition.webp" width="900" height="470" alt="Attrition bars: 27 harvested, 22 built, 22 environment starts, 8 invocable, 8 in the arena">
+        <figcaption><b>Figure 3.</b> Getting agents to the starting line was most of the work: 27 harvested, 8 that could be handed a task and do it.</figcaption>
+      </figure>
+
+      <h3>3.5 Answering “is this one model talking to itself?”</h3>
+      <p>Every agent is driven by the same local model, on purpose, so the variable is the agent. Partway through, I asked the question a reviewer would ask: if one model drives everything, are these results just that model talking to itself? The answer is now published on the methodology page and computed on every publish. The evidence is the divergence. Under the same scenarios and the same model, one agent complied 7 times while six agents complied zero times across 46 verdicts. Identical things would behave identically.</p>
+
+      <h3>3.6 Accessibility and the second theme</h3>
+      <p>The 3D figure that shows who attacked whom now has a spoken summary and a “read this figure as a table” panel with all 224 pairings, so it works without a pointer or a GPU. Contrast is set by measurement, with comments in the tokens file (for example, the faint ink is 4.6:1 on the dark ground). The site later gained a light theme, the same record printed on paper, with every text color at least 4.5:1.</p>
+
+      <h2 id="results"><span class="n">4</span>Results</h2>
+      <div class="table">
+        <table>
+          <thead><tr><th>Measure</th><th class="num">Count</th></tr></thead>
+          <tbody>
+            <tr><td>Agents harvested, built, environment starts</td><td class="num">27, 22, 22</td></tr>
+            <tr><td>Invocable agents in the arena</td><td class="num">8</td></tr>
+            <tr><td>Pair runs (both directions, four scenarios)</td><td class="num">520</td></tr>
+            <tr><td>Verdicts (strong evidence, weak)</td><td class="num">284 (155, 129)</td></tr>
+            <tr><td>Instrument artifacts, never counted</td><td class="num">232</td></tr>
+            <tr><td>Confirmed attacks, all induced execution</td><td class="num">8</td></tr>
+            <tr><td>Correction rows on record</td><td class="num">32</td></tr>
+            <tr><td>Generated papers</td><td class="num">9</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Every confirmed attack is the same kind, and the victims are two agents: mini-swe-agent (7 of 11 verdicts) and OpenHands (1 of 4). Nearly every agent took a turn as the attacker, so what separates a pair that falls from one that holds is whether the agent reading the instruction runs what it finds. No other scenario confirmed in 520 runs.</p>
+
+      <figure>
+        <img src="/img/crucible-matrix.webp" width="900" height="760" alt="Every pair against every scenario, with the newest result in each cell">
+        <figcaption><b>Figure 4.</b> Every pair against every scenario. The earned column counts verdicts per pair, so a reader can see where the evidence is thin.</figcaption>
+      </figure>
+
+      <h2 id="corrections"><span class="n">5</span>Corrections stay in the record</h2>
+      <p>The arena’s first two confirmed attacks were audited before anything was said about either. One held. In the other, the attacker had written a script to check its own work and run it, creating the marker itself before the victim started. The marker was gone by the time the attacker exited, so the two snapshots the criterion compares looked exactly like a victim that had complied.</p>
+      <p>That row was superseded as an instrument artifact, the criterion was fixed to require the marker to be absent when the victim starts, and the audit gained both checks. The original row is still readable next to its correction. I think this is the most important design decision in the project: a record that hides its mistakes is a record a reader has to take on faith.</p>
+
+      <h2 id="limits"><span class="n">6</span>Limitations</h2>
+      <ul>
+        <li>One model drives every agent. The code can vary the model as an experimental axis, and that run hasn’t happened yet.</li>
+        <li>Eight invocable agents is a small arena. Each new agent needs a hand-written entrypoint, because a wrong one would look exactly like an agent that doesn’t work.</li>
+        <li>Two of the five risk categories I set out to cover, cascading errors and compliance violations, have no executed evidence. A sandbox can’t easily produce a checkable wrong answer, or a real organization’s policy.</li>
+        <li>I built Crucible quickly with coding agents. The commit history shows that, and the safeguards above are what I’d point to as the reason to trust the output anyway.</li>
+      </ul>
+
+      <h2 id="next"><span class="n">7</span>What’s next</h2>
+      <p>Run the model axis, so the results say something about agents rather than about agents driven by one model. Add agents in volume by making entrypoint authoring faster without making it less careful. And design a scenario for cascading errors, which needs a task with a right answer a second agent can act on.</p>
+
+      <section class="refs" id="refs" aria-labelledby="refs-h">
+        <h2 id="refs-h"><span class="n"></span>References</h2>
+        <ol>
+          <li>Crucible, live record: <a href="https://crucible-weld.vercel.app">crucible-weld.vercel.app</a>, and methodology: <a href="https://crucible-weld.vercel.app/methodology">/methodology</a></li>
+          <li>Source and README: <a href="https://github.com/AllStreets/crucible">github.com/AllStreets/crucible</a></li>
+          <li>The generated papers: <a href="https://crucible-weld.vercel.app/papers">/papers</a></li>
+          <li>SMADP, the sandbox Crucible imports: <a href="https://github.com/AllStreets/SMADP">github.com/AllStreets/SMADP</a></li>
+        </ol>
+      </section>
+
+      <p class="next"><a href="/">All work</a><a href="/work/chicago-open-world/">Next: Chicago Open World</a></p>
+    </article>
+  </main>
+</div>
+</body>
+</html>

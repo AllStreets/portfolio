@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Forge review: a case study</title>
+<meta name="description" content="Redesigning how a person approves code a local AI model wrote: every check in plain words, a real diff, and an undo, in place of a chain of browser popups.">
+<link rel="canonical" href="https://connor-evans.vercel.app/work/forge/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Connor Evans">
+<meta property="og:url" content="https://connor-evans.vercel.app/work/forge/">
+<meta property="og:title" content="The Forge review: a case study">
+<meta property="og:description" content="Approving code a local model wrote: every check in plain words, a real diff, and an undo.">
+<meta property="og:image" content="https://connor-evans.vercel.app/img/og-forge.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Forge review: a case study">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#F5F0E6">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23121212'/%3E%3Ctext x='16' y='21.5' font-family='Arial' font-size='14' font-weight='700' text-anchor='middle' fill='%23F7F7F4'%3ECE%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="name" href="/">Connor Evans</a>
+    <nav aria-label="Site"><a href="/#work">Work</a><a href="/#how">How I work</a><a href="https://github.com/AllStreets">GitHub</a></nav>
+  </header>
+
+  <main class="paper">
+    <nav class="toc" aria-label="Sections">
+      <span class="eyebrow">Case study</span>
+      <a href="#problem">1. The problem</a>
+      <a href="#questions">2. Three questions</a>
+      <a href="#decisions">3. Design decisions</a>
+      <a href="#why">4. Why review matters</a>
+      <a href="#testing">5. Testing it for real</a>
+      <a href="#limits">6. Limits</a>
+      <a href="#next">7. What’s next</a>
+      <a href="#refs">References</a>
+    </nav>
+
+    <article>
+      <header>
+        <span class="eyebrow">Case study 5 of 5</span>
+        <h1>The Forge review: approving code a local model wrote</h1>
+        <p class="byline">Connor Evans · October 2026 · <a href="https://github.com/AllStreets/ember">github.com/AllStreets/ember</a></p>
+        <div class="abstract">
+          <b>Abstract</b>
+          <p>EMBER is an offline survival console, and its Forge lets a small local model rewrite EMBER’s own code from a plain-language request. Every change has to be approved by a person, and that approval used to run through a chain of browser <code>confirm()</code> popups: long paragraphs, no diff, and an OK button one reflexive Enter away. I redesigned the step where a person decides. It now answers three questions in order: what changed, whether it passed the checks, and how to take it back. One accessible dialog replaced 22 popups, the checks are reported in plain words, the diff is a real line diff, and every save can be undone. I tested it end to end against a real 30B coding model running on the same laptop.</p>
+        </div>
+      </header>
+
+      <figure>
+        <video src="/img/forge-review.mp4" poster="/img/forge-review-poster.jpg" width="1440" height="900" controls muted playsinline preload="metadata" aria-label="A 31-second recording: a request typed into Forge, the local model plans and builds it, the review shows each check and the diff, Cmd+Enter saves, then Undo restores the file"></video>
+        <figcaption><b>Figure 1.</b> The whole loop in real time, with a real local model (qwen3-coder 30B). Nothing is sped up. Type a request, review it, save it with <kbd>⌘</kbd><kbd>↵</kbd>, then take it back.</figcaption>
+      </figure>
+
+      <h2 id="problem"><span class="n">1</span>The problem</h2>
+      <p>Forge is EMBER’s answer to a hard scenario: no internet, no other computer, and a tool that needs fixing. You describe the change, the model writes it, and you approve it. The model is small enough to run on a laptop, so it is sometimes wrong. The approval step is the only thing standing between its output and the files EMBER runs from.</p>
+      <p>That step was built from the browser’s own popups. This is one of them, word for word, with a typical error filled in:</p>
+      <blockquote class="sysdialog">SYNTAX check FAILED: Unexpected token ‘}’<br><br>Apply anyway? A broken file can stop that page (or all of EMBER) from loading. You can restore from _forge_backups/ or the Revert button.<br><br><span class="sysbtns"><span>Cancel</span><span class="ok">OK</span></span></blockquote>
+      <p>Everything about it works against a careful decision. The question is buried at the end of a paragraph. The popup can’t show the code it is asking about. OK is focused, so Enter saves a file that is known to be broken. And “Revert” names a button somewhere else on the page. There were 22 of these across the Forge (11 alerts, 10 confirms and a prompt): saves, warnings, reverts, a file-name prompt and a reload prompt after every write.</p>
+      <p>The diff had its own problem. It compared the two files as sets of lines, so it listed every removed line first and every added line after, in the new file’s order. A one-line edit in the middle of a file showed its removal at the top and its addition far below, with no line numbers to connect them.</p>
+
+      <figure>
+        <img src="/img/forge-before.webp" width="1600" height="1096" alt="The old review panel for the same request: an eyebrow repeating the request in capitals, 1/1 pass, a file row for js/home.js with a green ok pill, and an opened diff that shows the one removed line at the top followed by the whole file as unchanged context, with no line numbers" loading="lazy">
+        <figcaption><b>Figure 2.</b> Before: the old panel on the same request and the same model, captured from the commit before the redesign. One pill says “ok” without saying what was checked. The removed line sits at the top, the rest of the file follows, and the added line is somewhere below the fold.</figcaption>
+      </figure>
+
+      <h2 id="questions"><span class="n">2</span>Three questions</h2>
+      <p>Someone approving a change a model wrote needs three answers, in this order, before they can say yes with a straight face:</p>
+      <ol>
+        <li><b>What changed?</b> Which files, and which lines in them.</li>
+        <li><b>Did it pass the checks?</b> In words a non-programmer can read, including the checks that didn’t apply.</li>
+        <li><b>Can I take it back?</b> Not in theory, but with one button, right after saving.</li>
+      </ol>
+      <p>The review panel is laid out in that order, top to bottom, for every file.</p>
+
+      <figure>
+        <img src="/img/forge-review.webp" width="1600" height="843" alt="The review panel: the request at the top, a summary saying the one changed file passed every check, the file's checks in words (syntax parses cleanly, the test render ran without errors), then a line diff with old and new line numbers, and Save and Discard buttons with a note that the save can be undone" loading="eager">
+        <figcaption><b>Figure 3.</b> The review, top to bottom: a one-sentence summary, each check in plain words, then the change itself with old and new line numbers.</figcaption>
+      </figure>
+
+      <h2 id="decisions"><span class="n">3</span>Design decisions</h2>
+
+      <h3>3.1 One dialog for every question</h3>
+      <p>All 22 popups became one in-page dialog. It is a real dialog: focus moves into it and stays there, Escape always means the cautious answer, and focus returns to whatever opened it. The part I care most about is where focus lands. When the question is risky (“Save a file that fails its checks?”), the safe button has focus, so a reflexive Enter does nothing harmful. Each button also says what it does (<i>Keep reviewing</i>, <i>Save anyway</i>) instead of OK and Cancel.</p>
+
+      <h3>3.2 Checks in plain words, including the ones that didn’t run</h3>
+      <p>Forge already validated every file: a syntax check, a check that <code>index.html</code> keeps the app’s structure and every script it loads, and a test render of the screen on a hidden page. The old panel collapsed all of that into one pill. Now each check is its own line with a word beside the icon: passed, failed, not run, or not applicable. A stylesheet isn’t syntax-checked, so it says so, rather than claiming “parses cleanly”. A file that fails any check can’t be ticked, and Save stays disabled until something passes.</p>
+
+      <h3>3.3 A real diff</h3>
+      <p>The new diff trims the lines the two versions share at the start and end, runs a longest-common-subsequence diff on the middle, and shows hunks with three lines of context and both old and new line numbers. A one-line edit now reads as one line, in place.</p>
+
+      <h3>3.4 Saving is a step you can take back</h3>
+      <p>After a save, a status bar says what was written and offers two things: reload to run it, and undo. Undo restores the backups that save made, and deletes any files Forge created. Before, a failed backup was skipped silently; now it stops and asks, and says that without a backup, Undo can’t restore that file.</p>
+
+      <figure>
+          <img src="/img/forge-saved.webp" width="1600" height="136" alt="A green status bar: Saved 1 file, js/home.js, reload to run the new code, with Reload EMBER and Undo this save buttons" loading="eager">
+          <figcaption><b>Figure 4.</b> After saving: what was written, and the way back.</figcaption>
+      </figure>
+      <figure class="narrow">
+          <img src="/img/forge-undo.webp" width="1180" height="420" alt="A dialog: Undo the last save? This file goes back to how it was before Forge wrote it. js/home.js. Buttons: Keep the change and Undo" loading="eager">
+          <figcaption><b>Figure 5.</b> Undo names exactly which files it will restore.</figcaption>
+      </figure>
+
+      <h2 id="why"><span class="n">4</span>Why review matters</h2>
+      <p>Early on, Forge was asked for a tide-time estimator. The plan had three steps (create the module, add its script tag, add it to the offline cache) and Forge finished only the first, so the file sat on disk, loaded by nothing. It turned up while checking that every cached file existed. Read closely, it was worse than unfinished: <code>estimateTides()</code> ignored the place and date it was given and returned the same two times every day, behind a short delay that made it look like it was calculating.</p>
+      <p>It looked right at every level you would skim: the module registration, the icon, the form, the error handling. It was hollow exactly where it mattered, so it was deleted rather than wired up (<a href="https://github.com/AllStreets/ember/commit/63127c6">63127c6</a>). On a console built for the day the network is gone, a tide tool that invents times is worse than none.</p>
+      <p>That is the case the whole design is for. Checks catch code that is broken. Only reading catches code that is fake. So the review can’t be a formality you click through. It has to make reading the change the easy thing to do.</p>
+
+      <h2 id="testing"><span class="n">5</span>Testing it for real</h2>
+      <p>I tested the redesign against the real thing rather than a mock. A headless Chromium session pointed Forge at a copy of EMBER in the browser’s private file storage, which uses the same file API, and asked the local qwen3-coder 30B model for a small change. It planned, built and passed every check. Then <kbd>⌘</kbd><kbd>↵</kbd> saved, Undo restored the file, Escape closed the dialog, and focus went back to the button that opened it, with no page errors. The recording in Figure 1 comes from that run.</p>
+
+      <h2 id="limits"><span class="n">6</span>Limits</h2>
+      <ul>
+        <li>Review is only as good as the reading. The panel makes it easy, but it can’t make someone read.</li>
+        <li>The test render only covers files that are screens; data files and styles get the checks that apply to them, and the panel says which.</li>
+        <li>Saving to disk uses the File System Access API, so Forge works in Chrome, Edge and Brave only. EMBER says so on the Forge page.</li>
+        <li>I built EMBER with coding agents. The parts of this study I’d point to as mine are the three questions, putting focus on the safe answer, and refusing to report a check that didn’t run as one that passed.</li>
+      </ul>
+
+      <h2 id="next"><span class="n">7</span>What’s next</h2>
+      <p>The same principles went into <a href="https://github.com/AllStreets/loom">loom</a>, which grew out of the Forge. Its permission card now says what a new tool will be able to do, one plain line per grant with how much each matters, shows the code that will run, and says that approving is consent, not a sandbox. Next is the same treatment for edits to loom’s own core, where the stakes are higher and the diffs are longer.</p>
+
+      <section class="refs" id="refs" aria-labelledby="refs-h">
+        <h2 id="refs-h">References</h2>
+        <ol>
+          <li>The review redesign: <a href="https://github.com/AllStreets/ember/commit/8f1446a">8f1446a</a> in <a href="https://github.com/AllStreets/ember">AllStreets/ember</a>, <code>js/forge.js</code></li>
+          <li>The tide calculator that faked its output, removed: <a href="https://github.com/AllStreets/ember/commit/63127c6">63127c6</a></li>
+          <li>loom’s permission card: <a href="https://github.com/AllStreets/loom/commit/d805cf4">d805cf4</a>, <code>src/components/desktop/PermissionCard.tsx</code></li>
+        </ol>
+      </section>
+
+      <p class="next"><a href="/work/teardown/">Previous: Teardown</a><a href="/">All work</a></p>
+    </article>
+  </main>
+</div>
+</body>
+</html>

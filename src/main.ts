@@ -236,7 +236,7 @@ scene.add(chiPatch, albPatch)
 type Place = { lat: number; lon: number; layers: { url: string; half: number }[]; lights?: { url: string; half: number; street: number }; region: string; water: number; M: THREE.Matrix4; tex: (THREE.Texture | null)[]; light: THREE.Texture | null; regionTex: THREE.Texture | null; loading: boolean }
 const places: Place[] = [
   { lat: CHICAGO.lat, lon: CHICAGO.lon, water: 1, layers: [{ url: '/places/chicago-wide.webp', half: 32768 }, { url: '/places/chicago-outer.webp', half: 10240 }, { url: '/places/chicago-inner.webp', half: 3072 }], lights: { url: '/places/chicago-lights.webp', half: 10240, street: 1 }, region: '/places/chicago-region-lights.webp' },
-  { lat: -37.8455, lon: 144.9705, water: 0, layers: [{ url: '/places/melbourne.webp', half: 7000 }], region: '' },
+  { lat: -37.8455, lon: 144.9705, water: 0, layers: [{ url: '/places/melbourne.webp', half: 7000 }], lights: { url: '/places/melbourne-lights.webp', half: 7000, street: 1 }, region: '' },
   { lat: 22.3, lon: 114.17, water: 0, layers: [{ url: '/places/hongkong.webp', half: 450000 }], region: '/places/hongkong-lights.webp' },
   { lat: 51.997, lon: -0.741, water: 0, layers: [{ url: '/places/bletchley.webp', half: 450000 }], region: '/places/bletchley-lights.webp' },
 ].map((p) => {
@@ -419,7 +419,7 @@ sunReset.addEventListener('click', () => {
 
 // The opening view faces the terminator: day to the east, the night's cities to the west.
 {
-  const s0 = subsolar(new Date())
+  const s0 = subsolar(sunDate())
   chapters[0].view.lon = ((s0.lon - 52 + 540) % 360) - 180
   chapters[0].view.lat = 24
 }

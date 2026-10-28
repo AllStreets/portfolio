@@ -72,10 +72,10 @@ export function makeCircuit() {
         vec3 kerb = vec3(0.92, 0.9, 0.86);
         vec3 col = mix(kerb * mix(0.35, 1.0, day), asphalt, edge);
         vec3 trace = vec3(1.0, 0.1, 0.06);
-        col = mix(col, trace * 3.0, trail * edge);
+        col = mix(col, trace * mix(5.0, 3.0, day), trail * edge);
         float tip = 1.0 - smoothstep(0.0, 22.0, behind);
         col = mix(col, vec3(4.0, 3.8, 3.5), tip);
-        gl_FragColor = vec4(col, fade * (0.75 + 0.25 * max(trail, 1.0 - edge)));
+        gl_FragColor = vec4(col, fade * (0.8 + 0.2 * max(trail, 1.0 - edge)));
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }

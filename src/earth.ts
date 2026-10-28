@@ -190,7 +190,7 @@ export function makeEarth(tex: {
           float fadeL = smoothstep(0.0, 0.08, min(min(m.x, 1.0 - m.x), min(m.y, 1.0 - m.y)));
           // Beyond the street map, the photo's bright pavement stands in at a low level.
           float pave = smoothstep(0.2, 0.45, dot(photoCol, vec3(0.3, 0.55, 0.15))) * 0.08;
-          lights = mix(lights, mix(pave * detLStreet, st * mix(1.1, 0.75, detLStreet), inside * fadeL), photo);
+          lights = mix(lights, mix(pave * detLStreet, mix(st * 1.1, pow(st, 1.35) * 0.62, detLStreet), inside * fadeL), photo);
         }
         col += vec3(1.0, 0.56, 0.24) * lights * night * 1.6 * (1.0 - water * 0.95);
 

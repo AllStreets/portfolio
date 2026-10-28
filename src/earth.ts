@@ -175,7 +175,8 @@ export function makeEarth(tex: {
         float shadow = 1.0 - texture2D(cloudMap, suv).r * 0.65 * lit * cloudFade;
 
         vec3 sun = sunTint(mu) * 3.2;
-        float diff = max(dot(N, L), 0.0);
+        // Slopes only shade the day side: past the terminator the ground is in Earth's shadow whatever way it faces.
+        float diff = max(dot(N, L), 0.0) * smoothstep(-0.02, 0.06, mu);
         shadow *= mix(1.0, 0.3 + 0.7 * groundShadow(vPos + n * 0.002), photo * (1.0 - water));
         vec3 col = albedo * sun * diff * shadow;
         // Sky fill on the day side.
@@ -193,6 +194,8 @@ export function makeEarth(tex: {
         // Black Marble carries faint terrain under its lights; keep only the lights.
         float lights = max(texture2D(nightMap, uv).r - 0.16, 0.0) / 0.84;
         lights = pow(lights, 1.5) * lightsScale;
+        // Black Marble records moonlit ice sheets too; no city light where the day image is ice.
+        lights *= 1.0 - smoothstep(0.35, 0.55, dot(pow(texture2D(dayMap, uv).rgb, vec3(2.2)), vec3(0.3, 0.55, 0.15)));
         // Regional lights at 500 m (NASA Black Marble), 450 km around the place.
         if (detROn > 0.5) {
           vec3 rp = (detAM * vec4(vPos, 1.0)).xyz;

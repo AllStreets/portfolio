@@ -20,7 +20,14 @@ function kelvinToRgb(k: number) {
 }
 
 export async function makeStars(url: string) {
-  const buf = await (await fetch(url)).arrayBuffer()
+  let buf = new ArrayBuffer(0)
+  for (let i = 0; i < 3 && !buf.byteLength; i++) {
+    try {
+      buf = await (await fetch(url)).arrayBuffer()
+    } catch {
+      await new Promise((r) => setTimeout(r, 300 * (i + 1)))
+    }
+  }
   const f = new Float32Array(buf)
   const n = f.length / 5
   const pos = new Float32Array(n * 3)

@@ -235,13 +235,26 @@ const uploads: { t: THREE.Texture; done: (t: THREE.Texture) => void }[] = []
 function upload(t: THREE.Texture, done: (t: THREE.Texture) => void = () => {}) {
   uploads.push({ t, done })
 }
-async function bitmapTex(url: string, flip: boolean) {
-  if (!bitmapOK) {
+// A failed request is retried, then handed to the plain image loader, so a flaky connection never leaves the page dark.
+async function getBlob(url: string) {
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetch(url)
+      if (r.ok) return await r.blob()
+    } catch {
+      /* retry */
+    }
+    await new Promise((r) => setTimeout(r, 300 * (i + 1)))
+  }
+  return null
+}
+async function bitmapTex(url: string, flip: boolean): Promise<THREE.Texture> {
+  const blob = bitmapOK ? await getBlob(url) : null
+  if (!blob) {
     const t = await loader.loadAsync(url)
     t.flipY = flip
     return t
   }
-  const blob = await (await fetch(url)).blob()
   const bmp = await createImageBitmap(blob, { imageOrientation: flip ? 'flipY' : 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none' })
   const t = new THREE.Texture(bmp as unknown as HTMLImageElement)
   t.flipY = false
@@ -256,6 +269,7 @@ async function tex(url: string, srgb: boolean) {
   return t
 }
 
+const starsP = makeStars('/earth/stars.bin').catch(() => makeStars('/earth/stars.bin'))
 const [day, night, relief, clouds] = await Promise.all([
   tex('/earth/day-4k.webp', true),
   tex('/earth/night-4k.webp', false),
@@ -370,7 +384,7 @@ for (let i = 0; i < PATH.length - 1; i++) {
 }
 scene.add(pathGroup)
 
-const stars = await makeStars('/earth/stars.bin')
+const stars = await starsP
 stars.material.uniforms.pixelRatio.value = dpr
 scene.add(stars)
 
@@ -535,7 +549,12 @@ function place(v: View, drift: number) {
 }
 
 function frame(now: number) {
-  if (city && !warmed && (warmedMeshes === 0 || outerReady)) warm()
+  if (!shownAt) {
+    shownAt = now
+    requestAnimationFrame(reveal)
+  }
+  const quiet = now - shownAt > 900 && now - lastMove > 400 && Math.abs(scrollY / SEG - shown) < 0.002
+  if (city && !warmed && (warmedMeshes === 0 || outerReady) && (quiet || shown > 0.25)) warm()
   // Big textures (the 8K Earth) go up only while the page is at rest, never mid-flight.
   const settled = Math.abs(scrollY / SEG - shown) < 0.002 && now - lastMove > 700
   const qi = uploads.findIndex((u) => settled || ((u.t.image as { width?: number })?.width ?? 0) <= 4096)
@@ -586,6 +605,7 @@ function frame(now: number) {
       city.sun.color.setRGB(1, 0.45 + 0.5 * warm, 0.2 + 0.68 * warm)
       city.sun.intensity = 3.2 * day
       city.sun.castShadow = lit
+      if (lit && !city.sun.shadow.map) renderer.shadowMap.needsUpdate = true
       city.sky.intensity = 0.03 + 0.93 * day
       const env = day > 0.3 ? city.dayEnv : city.nightEnv
       if (city.material.envMap !== env) city.material.envMap = env
@@ -670,17 +690,20 @@ let lastMove = 0
 addEventListener('scroll', () => (lastMove = performance.now()), { passive: true })
 let warmed = false
 const reveal = () => document.documentElement.classList.add('ready')
-setTimeout(reveal, 4000)
+// The globe shows on its first frame; the Chicago rehearsal waits for a quiet moment after the fade.
+let shownAt = 0
+// The rehearsal draws Chicago once, out of sight, at a quiet moment: once with the Loop, again when the outer ring lands.
+const warmCost: number[] = []
 function warm() {
   if (!city) return
+  const t0 = performance.now()
   warmedMeshes = city.meshes.length
   warmed = outerReady
   shadowSun = new THREE.Vector3()
-  const sd = sunDate()
-  const s0 = subsolar(sd)
+  const s0 = subsolar(sunDate())
   const sun0 = latLon(s0.lat, s0.lon).normalize()
+  const saved = { p: camera.position.clone(), q: camera.quaternion.clone(), up: camera.up.clone(), sun: earth.shared.sunDir.value.clone(), night: city.uniforms.uNight.value, vis: city.group.visible }
   earth.shared.sunDir.value.copy(sun0)
-  const saved = { p: camera.position.clone(), q: camera.quaternion.clone(), up: camera.up.clone() }
   place(chapters[1].view, 0)
   camera.updateMatrixWorld()
   city.group.visible = true
@@ -697,9 +720,12 @@ function warm() {
   camera.position.copy(saved.p)
   camera.quaternion.copy(saved.q)
   camera.up.copy(saved.up)
-  if (outerReady) requestAnimationFrame(reveal)
+  earth.shared.sunDir.value.copy(saved.sun)
+  city.uniforms.uNight.value = saved.night
+  city.group.visible = saved.vis
+  warmCost.push(Math.round(performance.now() - t0))
 }
 requestAnimationFrame(frame)
 
 // For tests and the capture script.
-Object.assign(window, { __globe: { renderer, scene, camera, chapters, go, shadowScene, shadowCam, shadowRT, earth, get city() { return city } } })
+Object.assign(window, { __globe: { renderer, scene, camera, chapters, go, shadowScene, shadowCam, shadowRT, earth, warmCost, get city() { return city } } })

@@ -7,7 +7,7 @@ LAT0, LON0, HALF, SRC = {'chicago': (41.88203, -87.62784, 10240, 'raw/roads.json
                          'melbourne': (-37.8455, 144.9705, 7000, 'raw/roads-mel.json'),
                          'hongkong': (22.29, 114.17, 16000, 'raw/roads-hk.json')}[PLACE]
 KX = 111320 * math.cos(math.radians(LAT0)); KY = 110574
-S = 8192
+S = 4096
 MPP = 2 * HALF / S
 # road class: (width in metres, brightness)
 W = {'motorway': (20, 0.7), 'trunk': (18, 0.75), 'primary': (16, 0.95), 'secondary': (14, 0.85), 'tertiary': (12, 0.75),

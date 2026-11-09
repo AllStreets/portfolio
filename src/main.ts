@@ -15,6 +15,14 @@ import { chapters, index, PATH, type View } from './chapters'
 const $ = <T extends HTMLElement>(s: string) => document.querySelector(s) as T
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
 const small = matchMedia('(max-width: 760px)').matches
+// Light tier: phones, tablets and low-memory laptops get 2K images, no outer ring, no sun shadows and no glow pass,
+// so the whole visit stays well inside what a phone browser lets one tab use.
+const memGB = (navigator as { deviceMemory?: number }).deviceMemory ?? 8
+const lite = small || matchMedia('(pointer: coarse)').matches || memGB <= 4 || new URLSearchParams(location.search).has('lite')
+// Layers drawn from 500 m data (regional lights, the regional Blue Marble) or seen only from far up hold no more
+// detail at 4096 than at 2048, so every device gets the 2048 copy of those.
+const coarseLayer = /(region-lights|chicago-wide|\/hongkong\.webp|\/bletchley\.webp)/
+const asset = (u: string) => (lite || coarseLayer.test(u) ? u.replace('/places/', '/places/lite/') : u)
 
 // ---------- Words on the page ----------
 
@@ -67,7 +75,7 @@ chapters.forEach((c, i) => {
     if (c.footage) {
       const fig = el('figure', 'shot')
       const pic = document.createElement('picture')
-      if (c.footage.avif) {
+      if (c.footage.avif && !lite) {
         const s = document.createElement('source')
         s.type = 'image/avif'
         s.dataset.srcset = c.footage.avif
@@ -78,7 +86,7 @@ chapters.forEach((c, i) => {
       img.width = 800
       img.height = 500
       img.decoding = 'async'
-      img.dataset.src = c.footage.webp
+      img.dataset.src = lite ? c.footage.webp.replace('/footage/', '/footage/lite/') : c.footage.webp
       pic.append(img)
       const live = c.links?.find((l) => /live/i.test(l.label)) ?? c.links?.[0]
       if (live) {
@@ -208,7 +216,7 @@ try {
 renderer.toneMapping = THREE.ACESFilmicToneMapping
 renderer.toneMappingExposure = 1.05
 renderer.outputColorSpace = THREE.SRGBColorSpace
-let dpr = Math.min(devicePixelRatio, small ? 1.5 : 1.75)
+let dpr = Math.min(devicePixelRatio, lite ? 1.25 : 1.75)
 renderer.setPixelRatio(dpr)
 
 const scene = new THREE.Scene()
@@ -229,17 +237,20 @@ let bloom: UnrealBloomPass | null = null
 addEventListener('resize', resize)
 resize()
 
-composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }))
-composer.addPass(new RenderPass(scene, camera))
-bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.35, 0.4, 0.9)
-composer.addPass(bloom)
-composer.addPass(new OutputPass())
+if (!lite) composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }))
+if (composer) {
+  composer.addPass(new RenderPass(scene, camera))
+  bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.35, 0.4, 0.9)
+  composer.addPass(bloom)
+  composer.addPass(new OutputPass())
+}
 resize()
 
 const loader = new THREE.TextureLoader()
 // Images decode off the main thread (createImageBitmap), and each new texture goes to the GPU on its own
 // frame through a queue, so no frame pays for more than one upload. Nothing waits until a place is reached.
 const bitmapOK = 'createImageBitmap' in window
+let texMB = 0 // GPU memory taken by queued textures (RGBA with mipmaps), for diagnostics
 const uploads: { t: THREE.Texture; done: (t: THREE.Texture) => void }[] = []
 function upload(t: THREE.Texture, done: (t: THREE.Texture) => void = () => {}) {
   uploads.push({ t, done })
@@ -285,26 +296,35 @@ const [day, night, relief, clouds] = await Promise.all([
   tex('/earth/relief-1k.webp', false),
   tex('/earth/clouds-1k.webp', false),
 ])
-const earth = makeEarth({ day, night, relief, clouds })
+const earth = makeEarth({ day, night, relief, clouds }, lite ? 384 : 768)
 scene.add(earth.surface, earth.clouds, earth.air)
 // The 1K Earth paints first; the 4K one follows and goes up one texture per frame.
-const fourK = Promise.all([tex('/earth/day-4k.webp', true), tex('/earth/night-4k.webp', false), tex('/earth/relief-4k.webp', false), tex('/earth/clouds-4k.webp', false)]).then(([d, n, r, c]) => {
+const K = lite ? '2k' : '4k'
+const fourK = Promise.all([tex(`/earth/day-${K}.webp`, true), tex(`/earth/night-${K}.webp`, false), tex(`/earth/relief-${K}.webp`, false), tex(`/earth/clouds-${K}.webp`, false)]).then(([d, n, r, c]) => {
   const u = earth.surfaceMat.uniforms
-  upload(d, () => (u.dayMap.value = d))
-  upload(n, () => (u.nightMap.value = n))
-  upload(r, () => (u.reliefMap.value = r))
+  // Each sharper image replaces the 1K one, which is then freed from the GPU.
+  const swap = (key: 'dayMap' | 'nightMap' | 'reliefMap', t: THREE.Texture) => () => {
+    const old = u[key].value as THREE.Texture
+    u[key].value = t
+    old.dispose()
+  }
+  upload(d, swap('dayMap', d))
+  upload(n, swap('nightMap', n))
+  upload(r, swap('reliefMap', r))
   upload(c, () => {
+    const old = u.cloudMap.value as THREE.Texture
     u.cloudMap.value = c
     earth.cloudMat.uniforms.cloudMap.value = c
+    old.dispose()
   })
 })
 
-const chiPatch = surfacePatch(CHICAGO.lat, CHICAGO.lon, 1.4, earth.surfaceMat, 360)
-const albPatch = surfacePatch(ALBERT.lat, ALBERT.lon, 1.4, earth.surfaceMat, 360)
+const chiPatch = surfacePatch(CHICAGO.lat, CHICAGO.lon, 1.4, earth.surfaceMat, lite ? 160 : 360)
+const albPatch = surfacePatch(ALBERT.lat, ALBERT.lon, 1.4, earth.surfaceMat, lite ? 160 : 360)
 scene.add(chiPatch, albPatch)
 
 // Photo layers for close-ups: NAIP aerial photography over Chicago, Sentinel-2 elsewhere.
-type Place = { lat: number; lon: number; keep?: number; map?: number; layers: { url: string; half: number }[]; lights?: { url: string; half: number; street: number }; region: string; water: number; M: THREE.Matrix4; tex: (THREE.Texture | null)[]; light: THREE.Texture | null; regionTex: THREE.Texture | null; loading: boolean }
+type Place = { lat: number; lon: number; keep?: number; map?: number; layers: { url: string; half: number }[]; lights?: { url: string; half: number; street: number }; region: string; water: number; M: THREE.Matrix4; tex: (THREE.Texture | null)[]; light: THREE.Texture | null; regionTex: THREE.Texture | null; loading: boolean; gen: number }
 const places: Place[] = [
   { lat: CHICAGO.lat, lon: CHICAGO.lon, water: 1, layers: [{ url: '/places/chicago-wide.webp', half: 32768 }, { url: '/places/chicago-outer.webp', half: 10240 }, { url: '/places/chicago-inner.webp', half: 3072 }], lights: { url: '/places/chicago-lights.webp', half: 10240, street: 1 }, region: '/places/chicago-region-lights.webp' },
   { lat: -37.8455, lon: 144.9705, water: 1, keep: 1, map: 1, layers: [{ url: '/places/melbourne.webp', half: 7000 }], lights: { url: '/places/melbourne-lights.webp', half: 7000, street: 1 }, region: '' },
@@ -314,11 +334,22 @@ const places: Place[] = [
   const { east, north, up } = enu(p.lat, p.lon)
   const m = new THREE.Matrix4().makeBasis(east, up, north.clone().negate()).setPosition(latLon(p.lat, p.lon))
   const M = m.invert().premultiply(new THREE.Matrix4().makeScale(1000, 1000, 1000))
-  return { ...p, M, tex: p.layers.map(() => null), light: null as THREE.Texture | null, regionTex: null as THREE.Texture | null, loading: false }
+  return { ...p, M, tex: p.layers.map(() => null), light: null as THREE.Texture | null, regionTex: null as THREE.Texture | null, loading: false, gen: 0 }
 })
+// Frees a place's photos and light maps from the GPU; they load again (from the browser cache) when needed.
+function unloadPlace(p: Place) {
+  if (!p.loading) return
+  p.loading = false
+  p.gen++
+  for (const t of [...p.tex, p.light, p.regionTex]) t?.dispose()
+  p.tex = p.tex.map(() => null)
+  p.light = null
+  p.regionTex = null
+}
 async function loadPlace(p: Place) {
   if (p.loading) return
   p.loading = true
+  const gen = ++p.gen
   const prep = (t: THREE.Texture) => {
     t.colorSpace = THREE.NoColorSpace
     t.anisotropy = renderer.capabilities.getMaxAnisotropy()
@@ -332,8 +363,9 @@ async function loadPlace(p: Place) {
   if (p.region) jobs.push([p.region, (u) => (p.regionTex = u)])
   for (const [url, done] of jobs) {
     // A file that fails is skipped; the rest still load.
-    const t = await bitmapTex(url, false).catch(() => null)
-    if (t) upload(prep(t), done)
+    const t = await bitmapTex(asset(url), false).catch(() => null)
+    if (p.gen !== gen) return // unloaded while this was downloading
+    if (t) upload(prep(t), (u) => (p.gen === gen ? done(u) : u.dispose()))
   }
 }
 function usePlace(cam: THREE.Vector3) {
@@ -434,7 +466,7 @@ pin('Victoria Harbour', 22.285, 114.17, hold(at('hongkong')))
 pin('Bletchley Park', 51.997, -0.741, hold(at('bletchley')))
 
 // Sun shadows for the city: the towers drawn from the sun into a depth map, 10 km across.
-const SH = 4096
+const SH = lite ? 2048 : 4096
 const shadowRT = new THREE.WebGLRenderTarget(SH, SH, { depthBuffer: true })
 shadowRT.depthTexture = new THREE.DepthTexture(SH, SH, THREE.UnsignedIntType)
 const shadowCam = new THREE.OrthographicCamera(-5, 5, 5, -5, 1, 70)
@@ -474,11 +506,12 @@ function updateShadow(sun: THREE.Vector3) {
 }
 
 // Chicago's buildings load once the globe is up.
-renderer.shadowMap.enabled = true
+renderer.shadowMap.enabled = !lite
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.shadowMap.autoUpdate = false
 let city: Awaited<ReturnType<typeof makeChicago>> | null = null
 let outerReady = false
+let booted = false
 const loadCity = () =>
   makeChicago(renderer, scene).then((c) => {
     // Compile the city's shaders (and their shadow variants) now, while it is out of sight.
@@ -496,33 +529,17 @@ const loadCity = () =>
   const c = await loadCity()
   await loadPlace(places[0])
   await fourK
-  for (const p of places.slice(1)) await loadPlace(p)
+  booted = true
+  if (lite) {
+    outerReady = true // phones skip the outer ring
+    return
+  }
   await c.loadOuter().catch(() => {})
   c.group.visible = true
   await renderer.compileAsync(scene, camera).catch(() => {})
   outerReady = true
-  loadEightK()
 })()
 
-// Sharper Earth when the device can take it.
-function loadEightK() {
-  if (small || renderer.capabilities.maxTextureSize < 8192) return
-  void (async () => {
-    const [d8, n8, r8, c8] = await Promise.all([
-      tex('/earth/day-8k.webp', true),
-      tex('/earth/night-8k.webp', false),
-      tex('/earth/relief-8k.webp', false),
-      tex('/earth/clouds-8k.webp', false),
-    ])
-    await Promise.all([d8, n8, r8, c8].map((t) => new Promise((r) => upload(t, r))))
-    const u = earth.surfaceMat.uniforms
-    u.dayMap.value = d8
-    u.nightMap.value = n8
-    u.reliefMap.value = r8
-    u.cloudMap.value = c8
-    earth.cloudMat.uniforms.cloudMap.value = c8
-  })()
-}
 
 // ---------- The sun ----------
 
@@ -556,6 +573,23 @@ sunReset.addEventListener('click', () => {
   const s0 = subsolar(sunDate())
   chapters[0].view.lon = ((s0.lon - 52 + 540) % 360) - 180
   chapters[0].view.lat = 24
+}
+
+// Which place each chapter stands over (index into places); chapters not listed are at globe range.
+const chapterPlace: Record<string, number> = { chicago: 0, teardown: 0, onexus: 0, crucible: 0, melbourne: 1, hongkong: 2, bletchley: 3 }
+// Keep the photos for the chapter in view and the next one; everything else is freed and reloads from cache.
+function managePlaces(goal: number) {
+  if (!booted) return
+  const want = new Set<number>()
+  const at = Math.round(goal)
+  for (let i = at; i <= at + 1; i++) {
+    const c = chapters[i]
+    if (c && chapterPlace[c.id] !== undefined) want.add(chapterPlace[c.id])
+  }
+  places.forEach((p, i) => {
+    if (want.has(i)) void loadPlace(p)
+    else if (p.loading) unloadPlace(p)
+  })
 }
 
 // ---------- Frame loop ----------
@@ -597,6 +631,10 @@ function frame(now: number) {
   if (qi >= 0) {
     const [next] = uploads.splice(qi, 1)
     renderer.initTexture(next.t)
+    const im = next.t.image as { width?: number; height?: number }
+    const mb = ((im.width ?? 0) * (im.height ?? 0) * 4 * 1.33) / 1e6
+    texMB += mb
+    next.t.addEventListener('dispose', () => (texMB -= mb))
     next.done(next.t)
   }
   const dt = Math.min(0.1, (now - last) / 1000)
@@ -621,6 +659,7 @@ function frame(now: number) {
 
   const alt = camera.position.length() - R
   usePlace(camera.position)
+  managePlaces(goal)
   earth.cloudMat.uniforms.fade.value = sstep(25, 140, alt) * (0.35 + 0.65 * sstep(300, 1400, alt))
   earth.surfaceMat.uniforms.cloudFade.value = sstep(8, 80, alt)
   stars.material.uniforms.dim.value = sstep(60, 400, alt)
@@ -643,7 +682,7 @@ function frame(now: number) {
       const warm = sstep(0.0, 0.35, mu)
       city.sun.color.setRGB(1, 0.45 + 0.5 * warm, 0.2 + 0.68 * warm)
       city.sun.intensity = 3.2 * day
-      city.sun.castShadow = lit
+      city.sun.castShadow = lit && !lite
       if (lit && !city.sun.shadow.map) renderer.shadowMap.needsUpdate = true
       city.sky.intensity = 0.03 + 0.93 * day
       const env = day > 0.3 ? city.dayEnv : city.nightEnv
@@ -705,7 +744,7 @@ function frame(now: number) {
     // Night only: by day the sunlit roofs would bloom too.
     const nightHere = 1 - sstep(-0.1, 0.05, tmp.copy(camera.position).normalize().dot(sun))
     bloom.strength = 0.45 * nightHere
-    bloom.enabled = alt < 400 && nightHere > 0.01
+    bloom.enabled = alt < 40 && nightHere > 0.01
   }
   if (composer && bloom?.enabled) composer.render()
   else renderer.render(scene, camera)
@@ -767,4 +806,4 @@ function warm() {
 requestAnimationFrame(frame)
 
 // For tests and the capture script.
-Object.assign(window, { __globe: { renderer, scene, camera, chapters, go, shadowScene, shadowCam, shadowRT, earth, warmCost, get city() { return city } } })
+Object.assign(window, { __globe: { renderer, scene, camera, chapters, go, shadowScene, shadowCam, shadowRT, earth, warmCost, lite, get texMB() { return Math.round(texMB) }, get city() { return city } } })

@@ -29,7 +29,7 @@ export function makeEarth(tex: {
   night: THREE.Texture
   relief: THREE.Texture
   clouds: THREE.Texture
-}) {
+}, seg = 768) {
   const shared: EarthUniforms = {
     sunDir: { value: new THREE.Vector3(1, 0, 0) },
     time: { value: 0 },
@@ -205,7 +205,8 @@ export function makeEarth(tex: {
             float re = smoothstep(0.0, 0.1, min(min(rm.x, 1.0 - rm.x), min(rm.y, 1.0 - rm.y))) * detROn;
             float rl = texture2D(detR, rm).r;
             // Like the global night image, these 500 m lights blur near the ground: dark there until the street map is in.
-            lights = mix(lights, pow(rl, 2.2) * 0.65 * coarseFade, re);
+            float rs = fwidth(rl) * 1.5 + 0.04;
+            lights = mix(lights, (smoothstep(0.35 - rs, 0.35 + rs, rl) * 0.2 + pow(rl, 1.6) * 0.6) * 0.42 * coarseFade, re);
           }
         }
         // Up close, the real street grid stands in for the blurred satellite glow.
@@ -355,7 +356,7 @@ export function makeEarth(tex: {
     `,
   })
 
-  const surface = new THREE.Mesh(new THREE.SphereGeometry(R, 768, 384), surfaceMat)
+  const surface = new THREE.Mesh(new THREE.SphereGeometry(R, seg, seg / 2), surfaceMat)
   const clouds = new THREE.Mesh(new THREE.SphereGeometry(R + 9, 256, 128), cloudMat)
   clouds.renderOrder = 1
   const air = new THREE.Mesh(new THREE.SphereGeometry(R + ATMOS, 192, 96), airMat)
